@@ -12,5 +12,8 @@
     "dev:mobile": "npm run start --workspace=mobile",
     "test:api": "npm run test --workspace=api",
     "build:api": "npm run build --workspace=api"
+  },
+  "devDependencies": {
+    "supabase": "^2.120.0"
   }
 }
