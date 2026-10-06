@@ -1,0 +1,16 @@
+{
+  "name": "flowops",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mobile work order and workflow management platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev --workspace=api",
+    "dev:mobile": "npm run start --workspace=mobile",
+    "test:api": "npm run test --workspace=api",
+    "build:api": "npm run build --workspace=api"
+  }
+}
