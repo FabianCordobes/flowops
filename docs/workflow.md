@@ -1,90 +1,74 @@
-# FlowOps Workflow
+# FlowOps Work Order Workflow
 
-## Roles
-
-### ADMIN
-
-Can:
-
-- Create work orders
-- Edit work orders
-- Assign operators
-- View all work orders
-- Change allowed statuses
-- View work order history
-
-### OPERATOR
-
-Can:
-
-- View assigned work orders
-- Start assigned work
-- Block assigned work
-- Resume blocked work
-- Complete assigned work
-- Add comments
-
----
-
-## Work Order Statuses
+## States
 
 NEW
+→ ASSIGNED
+→ IN_PROGRESS
+→ IN_REVIEW
+→ COMPLETED
 
-A newly created work order without an assigned operator.
+An ADMIN may request changes while a work order is IN_REVIEW,
+returning it to IN_PROGRESS.
 
-NEW -> ASSIGNED
+## Assignment
 
-Requires an operator.
+Assignment is handled separately from workflow transitions:
 
----
+POST /work-orders/:id/assign
 
-ASSIGNED
+Only ADMIN users may assign work orders.
 
-The work order has an operator assigned.
+Assignment performs:
 
-ASSIGNED -> IN_PROGRESS
+NEW → ASSIGNED
 
-Allowed for:
+and sets the assigned operator.
 
-- Assigned operator
-- Admin
+## Workflow transitions
 
----
+Workflow actions use:
 
-IN_PROGRESS
+POST /work-orders/:id/transitions
 
-Work is currently being performed.
+### START
 
-Possible transitions:
+Actor: assigned OPERATOR
 
-IN_PROGRESS -> BLOCKED
+ASSIGNED → IN_PROGRESS
 
-Requires a reason.
+### SUBMIT_FOR_REVIEW
 
-IN_PROGRESS -> COMPLETED
+Actor: assigned OPERATOR
 
-Allowed for:
+IN_PROGRESS → IN_REVIEW
 
-- Assigned operator
-- Admin
+### REQUEST_CHANGES
 
----
+Actor: ADMIN
 
-BLOCKED
+IN_REVIEW → IN_PROGRESS
 
-Work cannot continue temporarily.
+A reason is required.
 
-BLOCKED -> IN_PROGRESS
+### APPROVE
 
-Allowed for:
+Actor: ADMIN
 
-- Assigned operator
-- Admin
+IN_REVIEW → COMPLETED
 
----
+COMPLETED is a final state.
 
-COMPLETED
+## Audit history
 
-Final state in the MVP.
+Every successful transition creates a
+work_order_status_history record containing:
 
-No transitions are allowed from COMPLETED.
+- previous status
+- new status
+- actor
+- reason
+- timestamp
+
+The work order update and history insertion are executed
+inside the same database transaction.

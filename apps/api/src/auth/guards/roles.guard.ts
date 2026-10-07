@@ -5,8 +5,8 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-
-import { Profile, UserRole } from '../../profiles/entities/profile.entity.js';
+import { UserRole } from '@flowops/shared';
+import { Profile } from '../../profiles/entities/profile.entity.js';
 import { ProfilesService } from '../../profiles/profiles.service.js';
 import { AuthenticatedRequest } from './auth.guard.js';
 import { ROLES_KEY } from '../decorators/roles.decorator.js';

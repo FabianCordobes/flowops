@@ -1,6 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-
-import { UserRole } from '../../profiles/entities/profile.entity.js';
+import { UserRole } from '@flowops/shared';
 
 export const ROLES_KEY = 'roles';
 
