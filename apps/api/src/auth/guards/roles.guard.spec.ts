@@ -3,7 +3,8 @@ import { Reflector } from '@nestjs/core';
 import type { User } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Profile, UserRole } from '../../profiles/entities/profile.entity.js';
+import { UserRole } from '@flowops/shared';
+import { Profile } from '../../profiles/entities/profile.entity.js';
 import { ProfilesService } from '../../profiles/profiles.service.js';
 import { RolesGuard } from './roles.guard.js';
 

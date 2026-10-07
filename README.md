@@ -1,67 +1,27 @@
-# FlowOps
+## Work Order Workflow
 
-Mobile-first work order and workflow management platform.
+FlowOps models work orders as an explicit state machine:
 
-FlowOps is a full-stack application designed to manage operational work orders from creation to completion.
+NEW → ASSIGNED → IN_PROGRESS → IN_REVIEW → COMPLETED
 
-## Stack
+An ADMIN can return an IN_REVIEW order to IN_PROGRESS by
+requesting changes with a required reason.
 
-### Mobile
+Business workflow transitions are exposed through:
 
-- React Native
-- Expo
-- TypeScript
+POST /work-orders/:id/transitions
 
-### Backend
+Supported actions:
 
-- NestJS
-- TypeScript
+- START
+- SUBMIT_FOR_REVIEW
+- REQUEST_CHANGES
+- APPROVE
 
-### Data
+Assignment remains a separate business operation:
 
-- Supabase
-- PostgreSQL
+POST /work-orders/:id/assign
 
-### Testing
-
-- Vitest
-- API E2E testing
-
-## Core workflow
-
-NEW
-↓
-ASSIGNED
-↓
-IN_PROGRESS
-↕
-BLOCKED
-↓
-COMPLETED
-
-## Roles
-
-- ADMIN
-- OPERATOR
-
-## Project structure
-
-apps/api
-
-NestJS backend.
-
-apps/mobile
-
-React Native application.
-
-packages/shared
-
-Shared domain definitions.
-
-docs
-
-Architecture and business workflow documentation.
-
-## Status
-
-🚧 MVP under development.
+All transitions validate role, ownership and current state,
+and persist status changes together with their audit history
+inside a database transaction.

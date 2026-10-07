@@ -7,6 +7,7 @@ import { AppService } from './app.service.js';
 import { ProfilesModule } from './profiles/profiles.module.js';
 import { SupabaseModule } from './supabase/supabase.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { WorkOrdersModule } from './work-orders/work-orders.module.js';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { AuthModule } from './auth/auth.module.js';
     SupabaseModule,
     ProfilesModule,
     AuthModule,
+    WorkOrdersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,3 +1,4 @@
+import { UserRole } from '@flowops/shared';
 import {
   Column,
   CreateDateColumn,
@@ -5,11 +6,6 @@ import {
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
-
-export enum UserRole {
-  ADMIN = 'ADMIN',
-  OPERATOR = 'OPERATOR',
-}
 
 @Entity({ name: 'profiles' })
 export class Profile {
