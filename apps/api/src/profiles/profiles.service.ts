@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Profile } from './entities/profile.entity.js';
+import { UserRole } from '@flowops/shared';
 
 @Injectable()
 export class ProfilesService {
@@ -21,5 +22,17 @@ export class ProfilesService {
     }
 
     return profile;
+  }
+
+  async findOperators(): Promise<Profile[]> {
+    return this.profileRepository.find({
+      where: {
+        role: UserRole.OPERATOR,
+      },
+      order: {
+        fullName: 'ASC',
+        email: 'ASC'
+      },
+    });
   }
 }

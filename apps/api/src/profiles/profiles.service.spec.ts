@@ -11,6 +11,7 @@ describe('ProfilesService', () => {
   let service: ProfilesService;
   let repository: {
     findOne: ReturnType<typeof vi.fn>;
+    find: ReturnType<typeof vi.fn>;
   };
 
   const profile: Profile = {
@@ -24,8 +25,9 @@ describe('ProfilesService', () => {
 
   beforeEach(async () => {
     repository = {
-      findOne: vi.fn(),
-    };
+        findOne: vi.fn(),
+        find: vi.fn(),
+      };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,5 +62,34 @@ describe('ProfilesService', () => {
     await expect(service.findById('missing-user-id')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('should return operators ordered by full name and email', async () => {
+    const operators: Profile[] = [
+      {
+        id: '8e0d9bb4-38d1-4a29-875d-3fb13ed9c55e',
+        fullName: 'Operator One',
+        email: 'operator@flowops.local',
+        role: UserRole.OPERATOR,
+        createdAt: new Date('2026-10-06T21:39:20.643Z'),
+        updatedAt: new Date('2026-10-06T21:39:57.573Z'),
+      },
+    ];
+
+    repository.find.mockResolvedValue(operators);
+
+    const result = await service.findOperators();
+
+    expect(repository.find).toHaveBeenCalledWith({
+      where: {
+        role: UserRole.OPERATOR,
+      },
+      order: {
+        fullName: 'ASC',
+        email: 'ASC',
+      },
+    });
+
+    expect(result).toEqual(operators);
   });
 });

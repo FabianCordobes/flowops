@@ -144,6 +144,9 @@ export class WorkOrdersService {
         where: {
           workOrderId: id,
         },
+        relations: {
+          changedByProfile: true,
+        },
         order: {
           createdAt: 'ASC',
         },
