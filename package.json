@@ -14,6 +14,10 @@
     "build:api": "npm run build --workspace=api"
   },
   "devDependencies": {
+    "@types/react": "19.2.18",
     "supabase": "^2.120.0"
+  },
+  "dependencies": {
+    "react": "19.2.3"
   }
 }

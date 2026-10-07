@@ -785,13 +785,16 @@ it('should require a reason when requesting changes', async () => {
     });
   
     expect(historyRepository.find).toHaveBeenCalledWith({
-      where: {
-        workOrderId: 'work-order-id',
-      },
-      order: {
-        createdAt: 'ASC',
-      },
-    });
+        where: {
+          workOrderId: 'work-order-id',
+        },
+        relations: {
+          changedByProfile: true,
+        },
+        order: {
+          createdAt: 'ASC',
+        },
+      });
   });
 
   it('should return history for the assigned OPERATOR', async () => {
@@ -833,13 +836,16 @@ it('should require a reason when requesting changes', async () => {
     });
   
     expect(historyRepository.find).toHaveBeenCalledWith({
-      where: {
-        workOrderId: 'work-order-id',
-      },
-      order: {
-        createdAt: 'ASC',
-      },
-    });
+        where: {
+          workOrderId: 'work-order-id',
+        },
+        relations: {
+          changedByProfile: true,
+        },
+        order: {
+          createdAt: 'ASC',
+        },
+      });
   });
 
   it('should not return history for a work order not assigned to the OPERATOR', async () => {
