@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import type { User } from '@supabase/supabase-js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -11,6 +11,7 @@ import { ProfilesService } from '../profiles/profiles.service.js';
 import { AssignWorkOrderDto } from './dto/assign-work-order.dto.js';
 import { TransitionWorkOrderDto } from './dto/transition-work-order.dto.js';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto.js';
+import { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto.js';
 
 @Controller('work-orders')
 @UseGuards(AuthGuard, RolesGuard)
@@ -27,16 +28,18 @@ export class WorkOrdersController {
   }
 
   @Get()
-async findAll(
-  @CurrentUser() user: User,
-) {
-  const profile = await this.profilesService.findById(user.id);
+  async findAll(
+    @CurrentUser() user: User,
+    @Query() query: ListWorkOrdersQueryDto,
+  ) {
+    const profile = await this.profilesService.findById(user.id);
 
-  return this.workOrdersService.findAll(
-    user.id,
-    profile.role,
-  );
-}
+    return this.workOrdersService.findAll(
+      user.id,
+      profile.role,
+      query,
+    );
+  }
 
 @Get(':id/history')
 async findHistory(

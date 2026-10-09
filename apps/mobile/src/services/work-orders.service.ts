@@ -3,13 +3,37 @@ import type {
     CreateWorkOrderInput,
   WorkOrder,
   WorkOrderAction,
+  WorkOrderFilters,
   WorkOrderStatusHistory,
 } from '../types/work-order';
 
-export const getWorkOrders = (): Promise<WorkOrder[]> => {
-  return apiRequest<WorkOrder[]>('/work-orders');
-};
+export const getWorkOrders = (
+  filters: WorkOrderFilters = {},
+): Promise<WorkOrder[]> => {
+  const params = new URLSearchParams();
 
+  if (filters.status) {
+    params.set('status', filters.status);
+  }
+
+  if (filters.priority) {
+    params.set('priority', filters.priority);
+  }
+
+  if (filters.search?.trim()) {
+    params.set('search', filters.search.trim());
+  }
+
+  if (filters.sort) {
+    params.set('sort', filters.sort);
+  }
+
+  const queryString = params.toString();
+
+  return apiRequest<WorkOrder[]>(
+    `/work-orders${queryString ? `?${queryString}` : ''}`,
+  );
+};
 export const getWorkOrder = (id: string): Promise<WorkOrder> => {
   return apiRequest<WorkOrder>(`/work-orders/${id}`);
 };

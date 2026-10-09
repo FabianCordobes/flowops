@@ -1,9 +1,5 @@
-
 import { useFocusEffect } from '@react-navigation/native';
-import type { CompositeScreenProps } from '@react-navigation/native';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ActivityIndicator,
@@ -17,71 +13,132 @@ import { WorkOrderCard } from '../components/work-orders/WorkOrderCard';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ScreenHeader } from '../components/ui/ScreenHeader';
 
-import type {
-  AppTabParamList,
-  RootStackParamList,
-} from '../navigation/types';
-
 import { useAuth } from '../providers/AuthProvider';
 import { getWorkOrders } from '../services/work-orders.service';
 
-import {
-  colors,
-  radius,
-  spacing,
-  typography,
-} from '../theme';
+import { colors, radius, spacing, typography } from '../theme';
 
-import type { WorkOrder } from '../types/work-order';
+import type {
+  WorkOrder,
+  WorkOrderFilters,
+  WorkOrderPriorityFilter,
+  WorkOrderSort,
+  WorkOrderStatusFilter,
+} from '../types/work-order';
 
-type Props = CompositeScreenProps<
-  BottomTabScreenProps<AppTabParamList, 'Orders'>,
-  NativeStackScreenProps<RootStackParamList, 'AppTabs'>
->;
+import type { WorkOrdersScreenProps } from '../types/work-order-screen';
+import { WorkOrdersFilters } from '../components/work-orders/WorkOrdersFilters';
 
-export const WorkOrdersScreen = ({ navigation }: Props) => {
+export const WorkOrdersScreen = ({
+  navigation,
+}: WorkOrdersScreenProps) => {
   const { profile } = useAuth();
 
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(
-    null,
-  );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const [status, setStatus] =
+    useState<WorkOrderStatusFilter | undefined>(undefined);
+
+  const [priority, setPriority] =
+    useState<WorkOrderPriorityFilter | undefined>(undefined);
+
+  const [sort, setSort] = useState<WorkOrderSort>('newest');
+
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  const requestID = useRef(0);
 
   const isAdmin = profile?.role === 'ADMIN';
 
-  const loadWorkOrders = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 350);
 
-    try {
-      const data = await getWorkOrders();
-      setWorkOrders(data);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'Unable to load work orders.',
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  const filters: WorkOrderFilters = {
+    status,
+    priority,
+    search: debouncedSearch,
+    sort,
+  };
+
+  const loadWorkOrders = useCallback(
+    async (activeRequestID: number, activeFilters: WorkOrderFilters) => {
+      setIsLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const data = await getWorkOrders(activeFilters);
+
+        if (requestID.current !== activeRequestID) {
+          return;
+        }
+
+        setWorkOrders(data);
+      } catch (error) {
+        if (requestID.current !== activeRequestID) {
+          return;
+        }
+
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'Unable to load work orders.',
+        );
+      } finally {
+        if (requestID.current === activeRequestID) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [],
+  );
 
   useFocusEffect(
     useCallback(() => {
-      void loadWorkOrders();
-    }, [loadWorkOrders]),
+      const currentRequestID = ++requestID.current;
+
+      void loadWorkOrders(currentRequestID, {
+        status,
+        priority,
+        search: debouncedSearch,
+        sort,
+      });
+
+      return () => {
+        requestID.current += 1;
+      };
+    }, [loadWorkOrders, status, priority, debouncedSearch, sort]),
   );
 
-  const handleCreateWorkOrder = () => {
-    navigation.navigate('CreateWorkOrder');
+  const clearFilters = () => {
+    setStatus(undefined);
+    setPriority(undefined);
+    setSearch('');
+    setDebouncedSearch('');
+    setSort('newest');
   };
+
+  const hasActiveFilters =
+    status !== undefined ||
+    priority !== undefined ||
+    search.trim().length > 0 ||
+    sort !== 'newest';
 
   const handleOpenWorkOrder = (workOrderID: string) => {
     navigation.navigate('WorkOrderDetail', {
       workOrderId: workOrderID,
     });
+  };
+
+  const handleCreateWorkOrder = () => {
+    navigation.navigate('CreateWorkOrder');
   };
 
   const hasWorkOrders = workOrders.length > 0;
@@ -90,8 +147,8 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
     >
-      {/* HEADER */}
       <View style={styles.header}>
         <ScreenHeader
           eyebrow="FlowOps workspace"
@@ -100,10 +157,7 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
         />
 
         <View style={styles.accountRow}>
-          <Text
-            style={styles.accountEmail}
-            numberOfLines={1}
-          >
+          <Text style={styles.accountEmail} numberOfLines={1}>
             {profile?.email}
           </Text>
 
@@ -115,13 +169,24 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
         </View>
       </View>
 
-      {/* LOADING */}
+      {/* FILTERS */}
+      <WorkOrdersFilters
+        status={status}
+        priority={priority}
+        sort={sort}
+        search={search}
+        hasActiveFilters={hasActiveFilters}
+        onStatusChange={setStatus}
+        onPriorityChange={setPriority}
+        onSortChange={setSort}
+        onSearchChange={setSearch}
+        onClear={clearFilters}
+      />
+
+      {/* RESULTS */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator
-            size="large"
-            color={colors.primary}
-          />
+          <ActivityIndicator size="large" color={colors.primary} />
 
           <Text style={styles.loadingText}>
             Loading work orders...
@@ -129,7 +194,6 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
         </View>
       ) : null}
 
-      {/* ERROR */}
       {!isLoading && errorMessage ? (
         <EmptyState
           variant="error"
@@ -137,43 +201,54 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
           description={errorMessage}
           actionLabel="Try again"
           onAction={() => {
-            void loadWorkOrders();
+            const currentRequestID = ++requestID.current;
+            void loadWorkOrders(currentRequestID, filters);
           }}
         />
       ) : null}
 
-      {/* EMPTY STATE */}
       {!isLoading && !errorMessage && !hasWorkOrders ? (
         <EmptyState
           variant="empty"
-          title="No work orders yet"
+          title={
+            hasActiveFilters
+              ? 'No matching work orders'
+              : 'No work orders yet'
+          }
           description={
-            isAdmin
-              ? 'Create the first work order to start the workflow.'
-              : 'There are no work orders assigned to you.'
+            hasActiveFilters
+              ? 'Try changing or clearing your filters.'
+              : isAdmin
+                ? 'Create the first work order to start the workflow.'
+                : 'There are no work orders assigned to you.'
           }
           actionLabel={
-            isAdmin ? 'Create work order' : undefined
+            hasActiveFilters
+              ? 'Clear filters'
+              : isAdmin
+                ? 'Create work order'
+                : undefined
           }
           onAction={
-            isAdmin ? handleCreateWorkOrder : undefined
+            hasActiveFilters
+              ? clearFilters
+              : isAdmin
+                ? handleCreateWorkOrder
+                : undefined
           }
         />
       ) : null}
 
-      {/* WORK ORDERS LIST */}
       {!isLoading && !errorMessage && hasWorkOrders ? (
         <View style={styles.listSection}>
           <View style={styles.listHeader}>
             <Text style={styles.listTitle}>
-              All work orders
+              {hasActiveFilters ? 'Results' : 'All work orders'}
             </Text>
 
             <Text style={styles.listCount}>
               {workOrders.length}{' '}
-              {workOrders.length === 1
-                ? 'order'
-                : 'orders'}
+              {workOrders.length === 1 ? 'order' : 'orders'}
             </Text>
           </View>
 
@@ -182,9 +257,7 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
               <WorkOrderCard
                 key={workOrder.id}
                 workOrder={workOrder}
-                onPress={() => {
-                  handleOpenWorkOrder(workOrder.id);
-                }}
+                onPress={() => handleOpenWorkOrder(workOrder.id)}
               />
             ))}
           </View>
@@ -236,10 +309,6 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semibold,
     letterSpacing: typography.letterSpacing.wide,
-  },
-
-  createAction: {
-    marginBottom: spacing.xxl,
   },
 
   loadingContainer: {
