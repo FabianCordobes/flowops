@@ -52,3 +52,25 @@ export type CreateWorkOrderInput = {
     reason: string | null;
     createdAt: string;
   };
+
+  export type WorkOrderStatusFilter =
+  | 'NEW'
+  | 'ASSIGNED'
+  | 'IN_PROGRESS'
+  | 'IN_REVIEW'
+  | 'COMPLETED';
+
+export type WorkOrderPriorityFilter =
+  | 'LOW'
+  | 'MEDIUM'
+  | 'HIGH'
+  | 'URGENT';
+
+export type WorkOrderSort = 'newest' | 'oldest';
+
+export type WorkOrderFilters = {
+  status?: WorkOrderStatusFilter;
+  priority?: WorkOrderPriorityFilter;
+  search?: string;
+  sort?: WorkOrderSort;
+};

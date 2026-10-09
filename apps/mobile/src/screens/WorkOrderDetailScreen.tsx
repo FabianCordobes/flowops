@@ -1,3 +1,4 @@
+
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -9,6 +10,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+import { AppButton } from '../components/ui/AppButton';
+import { EmptyState } from '../components/ui/EmptyState';
+import { PriorityBadge } from '../components/ui/PriorityBadge';
+import { ScreenHeader } from '../components/ui/ScreenHeader';
+import { StatusBadge } from '../components/ui/StatusBadge';
+import { colors, radius, spacing, typography } from '../theme';
 
 import type { RootStackParamList } from '../navigation/types';
 import { useAuth } from '../providers/AuthProvider';
@@ -35,6 +43,11 @@ type Props = NativeStackScreenProps<
   'WorkOrderDetail'
 >;
 
+const MAX_REASON_LENGTH = 1000;
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error ? error.message : fallback;
+
 export const WorkOrderDetailScreen = ({
   route,
   navigation,
@@ -44,48 +57,74 @@ export const WorkOrderDetailScreen = ({
 
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isTransitioning, setIsTransitioning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const [operators, setOperators] = useState<Profile[]>([]);
+  const [showOperators, setShowOperators] = useState(false);
+  const [isAssigning, setIsAssigning] = useState(false);
 
   const [selectedAction, setSelectedAction] =
     useState<AvailableWorkOrderAction | null>(null);
-
+  const [pendingAction, setPendingAction] =
+    useState<WorkOrderAction | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const [reason, setReason] = useState('');
 
-  const [operators, setOperators] = useState<Profile[]>([]);
-  const [isAssigning, setIsAssigning] = useState(false);
-  const [showOperators, setShowOperators] = useState(false);
   const [history, setHistory] = useState<WorkOrderStatusHistory[]>([]);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const isBusy = isAssigning || isTransitioning;
+  const normalizedReason = reason.trim();
+  const isReasonValid = normalizedReason.length > 0;
+
+  const sortedHistory = useMemo(
+    () =>
+      [...history].sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() -
+          new Date(a.createdAt).getTime(),
+      ),
+    [history],
+  );
+
+  const loadHistory = useCallback(async () => {
+    setIsHistoryLoading(true);
+    setHistoryError(null);
+
+    try {
+      const data = await getWorkOrderHistory(workOrderId);
+      setHistory(data);
+    } catch (error) {
+      setHistoryError(
+        getErrorMessage(error, 'Unable to load work order history.'),
+      );
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, [workOrderId]);
 
   const loadWorkOrder = useCallback(async () => {
     setIsLoading(true);
-    setIsHistoryLoading(true);
     setErrorMessage(null);
-  
+
     try {
-      const [workOrderData, historyData] = await Promise.all([
-        getWorkOrder(workOrderId),
-        getWorkOrderHistory(workOrderId),
-      ]);
-  
-      setWorkOrder(workOrderData);
-      setHistory(historyData);
+      const data = await getWorkOrder(workOrderId);
+      setWorkOrder(data);
     } catch (error) {
+      setWorkOrder(null);
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'Unable to load work order.',
+        getErrorMessage(error, 'Unable to load work order.'),
       );
     } finally {
       setIsLoading(false);
-      setIsHistoryLoading(false);
     }
   }, [workOrderId]);
 
   useEffect(() => {
     void loadWorkOrder();
-  }, [loadWorkOrder]);
+    void loadHistory();
+  }, [loadWorkOrder, loadHistory]);
 
   const availableActions = useMemo(() => {
     if (!profile || !workOrder) {
@@ -98,20 +137,26 @@ export const WorkOrderDetailScreen = ({
     );
   }, [profile, workOrder]);
 
+  const canAssign =
+    profile?.role === 'ADMIN' &&
+    workOrder?.status === 'NEW' &&
+    !workOrder.assignedTo;
+
   const handleShowOperators = async () => {
+    if (isBusy || !canAssign) {
+      return;
+    }
+
     setIsAssigning(true);
     setErrorMessage(null);
 
     try {
       const data = await getOperators();
-
       setOperators(data);
       setShowOperators(true);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'Unable to load operators.',
+        getErrorMessage(error, 'Unable to load operators.'),
       );
     } finally {
       setIsAssigning(false);
@@ -119,6 +164,10 @@ export const WorkOrderDetailScreen = ({
   };
 
   const handleAssignOperator = async (operatorId: string) => {
+    if (isBusy || !canAssign) {
+      return;
+    }
+
     setIsAssigning(true);
     setErrorMessage(null);
 
@@ -131,25 +180,29 @@ export const WorkOrderDetailScreen = ({
       setWorkOrder(updatedWorkOrder);
       setShowOperators(false);
       setOperators([]);
-
-      const updatedHistory = await getWorkOrderHistory(workOrderId);
-      setHistory(updatedHistory);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'Unable to assign operator.',
+        getErrorMessage(error, 'Unable to assign operator.'),
       );
-    } finally {
       setIsAssigning(false);
+      return;
     }
+
+    // The assignment has succeeded. History refresh is independent.
+    await loadHistory();
+    setIsAssigning(false);
   };
 
   const executeTransition = async (
     action: WorkOrderAction,
     transitionReason?: string,
   ) => {
+    if (isBusy) {
+      return;
+    }
+
     setIsTransitioning(true);
+    setPendingAction(action);
     setErrorMessage(null);
 
     try {
@@ -162,23 +215,28 @@ export const WorkOrderDetailScreen = ({
       setWorkOrder(updatedWorkOrder);
       setSelectedAction(null);
       setReason('');
-
-      const updatedHistory = await getWorkOrderHistory(workOrderId);
-      setHistory(updatedHistory);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'Unable to update work order.',
+        getErrorMessage(error, 'Unable to update work order.'),
       );
-    } finally {
       setIsTransitioning(false);
+      setPendingAction(null);
+      return;
     }
+
+    // The transition has succeeded. Do not repeat it if history fails.
+    await loadHistory();
+    setIsTransitioning(false);
+    setPendingAction(null);
   };
 
   const handleAction = (
     actionDefinition: AvailableWorkOrderAction,
   ) => {
+    if (isBusy || selectedAction) {
+      return;
+    }
+
     if (actionDefinition.requiresReason) {
       setSelectedAction(actionDefinition);
       setReason('');
@@ -190,14 +248,7 @@ export const WorkOrderDetailScreen = ({
   };
 
   const handleReasonTransition = () => {
-    if (!selectedAction) {
-      return;
-    }
-
-    const normalizedReason = reason.trim();
-
-    if (!normalizedReason) {
-      setErrorMessage('A reason is required.');
+    if (!selectedAction || isBusy || !isReasonValid) {
       return;
     }
 
@@ -207,14 +258,30 @@ export const WorkOrderDetailScreen = ({
     );
   };
 
+  const handleCancelOperators = () => {
+    if (isBusy) {
+      return;
+    }
+
+    setShowOperators(false);
+    setOperators([]);
+  };
+
+  const handleCancelReason = () => {
+    if (isBusy) {
+      return;
+    }
+
+    setSelectedAction(null);
+    setReason('');
+    setErrorMessage(null);
+  };
+
   if (isLoading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" />
-
-        <Text style={styles.loadingText}>
-          Loading work order...
-        </Text>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading work order...</Text>
       </View>
     );
   }
@@ -222,24 +289,16 @@ export const WorkOrderDetailScreen = ({
   if (!workOrder) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.errorTitle}>
-          Unable to load work order
-        </Text>
-
-        <Text style={styles.errorText}>
-          {errorMessage ?? 'Work order not found.'}
-        </Text>
-
-        <Pressable
-          style={styles.secondaryButton}
-          onPress={() => {
+        <EmptyState
+          variant="error"
+          title="Unable to load work order"
+          description={errorMessage ?? 'Work order not found.'}
+          actionLabel="Try again"
+          onAction={() => {
             void loadWorkOrder();
+            void loadHistory();
           }}
-        >
-          <Text style={styles.secondaryButtonText}>
-            Try again
-          </Text>
-        </Pressable>
+        />
       </View>
     );
   }
@@ -250,41 +309,35 @@ export const WorkOrderDetailScreen = ({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Pressable
-        disabled={isTransitioning || isAssigning}
-        onPress={() => navigation.goBack()}
-      >
-        <Text style={styles.back}>
-          ← Work orders
-        </Text>
-      </Pressable>
-
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>
-          WORK ORDER
-        </Text>
-
-        <Text style={styles.title}>
-          {workOrder.title}
-        </Text>
-
-        {workOrder.description ? (
-          <Text style={styles.description}>
-            {workOrder.description}
-          </Text>
-        ) : null}
+      {/* NAVIGATION */}
+      <View style={styles.navigationRow}>
+        <AppButton
+          label="← Work orders"
+          variant="outline"
+          size="sm"
+          fullWidth={false}
+          disabled={isBusy}
+          onPress={() => navigation.goBack()}
+        />
       </View>
 
-      <View style={styles.card}>
-        <DetailRow
-          label="Status"
-          value={formatStatus(workOrder.status)}
+      {/* HEADER */}
+      <View style={styles.header}>
+        <ScreenHeader
+          eyebrow="WORK ORDER DETAILS"
+          title={workOrder.title}
+          subtitle={workOrder.description || undefined}
         />
 
-        <DetailRow
-          label="Priority"
-          value={workOrder.priority}
-        />
+        <View style={styles.headerBadges}>
+          <StatusBadge status={workOrder.status} size="md" />
+          <PriorityBadge priority={workOrder.priority} size="md" />
+        </View>
+      </View>
+
+      {/* OVERVIEW */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Overview</Text>
 
         <DetailRow
           label="Due date"
@@ -296,45 +349,38 @@ export const WorkOrderDetailScreen = ({
         />
 
         <DetailRow
-          label="Assigned"
-          value={workOrder.assignedTo ? 'Yes' : 'Not assigned'}
+          label="Assignment"
+          value={
+            workOrder.assignedTo ? 'Assigned' : 'Not assigned'
+          }
         />
       </View>
 
-      {profile?.role === 'ADMIN' &&
-      workOrder.status === 'NEW' &&
-      !workOrder.assignedTo ? (
+      {/* ASSIGNMENT */}
+      {canAssign ? (
         <View style={styles.actionsSection}>
-          <Text style={styles.sectionLabel}>
-            ASSIGNMENT
-          </Text>
+          <Text style={styles.sectionLabel}>ASSIGNMENT</Text>
 
-          <Pressable
-            disabled={isAssigning}
-            style={({ pressed }) => [
-              styles.actionButton,
-              pressed && styles.buttonPressed,
-              isAssigning && styles.buttonDisabled,
-            ]}
-            onPress={() => {
-              void handleShowOperators();
-            }}
-          >
-            {isAssigning && !showOperators ? (
-              <ActivityIndicator />
-            ) : (
-              <Text style={styles.actionButtonText}>
-                Assign operator
-              </Text>
-            )}
-          </Pressable>
+          {!showOperators ? (
+            <AppButton
+              label="Assign operator"
+              variant="primary"
+              loading={isAssigning}
+              disabled={isBusy}
+              onPress={() => {
+                void handleShowOperators();
+              }}
+            />
+          ) : null}
         </View>
       ) : null}
 
-      {showOperators ? (
+      {/* OPERATOR SELECTOR */}
+      {canAssign && showOperators ? (
         <View style={styles.operatorCard}>
-          <Text style={styles.operatorTitle}>
-            Select operator
+          <Text style={styles.operatorTitle}>Select operator</Text>
+          <Text style={styles.operatorDescription}>
+            Choose who will be responsible for this work order.
           </Text>
 
           {operators.length === 0 ? (
@@ -342,218 +388,268 @@ export const WorkOrderDetailScreen = ({
               No operators available.
             </Text>
           ) : (
-            operators.map((operator) => (
-              <Pressable
-                key={operator.id}
-                disabled={isAssigning}
-                style={({ pressed }) => [
-                  styles.operatorOption,
-                  pressed && styles.buttonPressed,
-                  isAssigning && styles.buttonDisabled,
-                ]}
-                onPress={() => {
-                  void handleAssignOperator(operator.id);
-                }}
-              >
-                <View style={styles.operatorInfo}>
-                  <Text style={styles.operatorName}>
-                    {operator.fullName ?? 'Operator'}
-                  </Text>
+            <View style={styles.operatorList}>
+              {operators.map((operator) => (
+                <Pressable
+                  key={operator.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Assign to ${
+                    operator.fullName ?? operator.email
+                  }`}
+                  accessibilityState={{ disabled: isBusy }}
+                  disabled={isBusy}
+                  style={({ pressed }) => [
+                    styles.operatorOption,
+                    pressed && styles.buttonPressed,
+                    isBusy && styles.buttonDisabled,
+                  ]}
+                  onPress={() => {
+                    void handleAssignOperator(operator.id);
+                  }}
+                >
+                  <View style={styles.operatorInfo}>
+                    <Text style={styles.operatorName} numberOfLines={1}>
+                      {operator.fullName ?? 'Operator'}
+                    </Text>
 
-                  <Text style={styles.operatorEmail}>
-                    {operator.email}
-                  </Text>
-                </View>
+                    <Text style={styles.operatorEmail} numberOfLines={1}>
+                      {operator.email}
+                    </Text>
+                  </View>
 
-                <Text style={styles.assignLabel}>
-                  Assign
-                </Text>
-              </Pressable>
-            ))
+                  <Text style={styles.assignLabel}>Assign →</Text>
+                </Pressable>
+              ))}
+            </View>
           )}
 
-          <Pressable
-            disabled={isAssigning}
-            style={styles.cancelOperatorButton}
-            onPress={() => {
-              setShowOperators(false);
-            }}
-          >
-            <Text style={styles.cancelButtonText}>
-              Cancel
-            </Text>
-          </Pressable>
+          <View style={styles.operatorCancel}>
+            <AppButton
+              label="Cancel"
+              variant="outline"
+              size="sm"
+              fullWidth={false}
+              disabled={isBusy}
+              onPress={handleCancelOperators}
+            />
+          </View>
         </View>
       ) : null}
 
+      {/* OPERATION ERRORS */}
       {errorMessage ? (
-        <View style={styles.errorBox}>
-          <Text style={styles.errorBoxText}>
-            {errorMessage}
-          </Text>
+        <View style={styles.errorBox} accessibilityRole="alert">
+          <Text style={styles.errorBoxText}>{errorMessage}</Text>
         </View>
       ) : null}
 
+      {/* AVAILABLE ACTIONS */}
       {availableActions.length > 0 ? (
         <View style={styles.actionsSection}>
-          <Text style={styles.sectionLabel}>
-            AVAILABLE ACTIONS
-          </Text>
+          <Text style={styles.sectionLabel}>AVAILABLE ACTIONS</Text>
 
           <View style={styles.actions}>
             {availableActions.map((actionDefinition) => (
-              <Pressable
+              <AppButton
                 key={actionDefinition.action}
-                disabled={isTransitioning}
-                style={({ pressed }) => [
-                  styles.actionButton,
-                  actionDefinition.action === 'REQUEST_CHANGES' &&
-                    styles.secondaryActionButton,
-                  pressed && styles.buttonPressed,
-                  isTransitioning && styles.buttonDisabled,
-                ]}
-                onPress={() => {
-                  handleAction(actionDefinition);
-                }}
-              >
-                {isTransitioning ? (
-                  <ActivityIndicator />
-                ) : (
-                  <Text
-                    style={[
-                      styles.actionButtonText,
-                      actionDefinition.action ===
-                        'REQUEST_CHANGES' &&
-                        styles.secondaryActionButtonText,
-                    ]}
-                  >
-                    {actionDefinition.label}
-                  </Text>
-                )}
-              </Pressable>
+                label={actionDefinition.label}
+                variant={
+                  actionDefinition.action === 'REQUEST_CHANGES'
+                    ? 'outline'
+                    : 'primary'
+                }
+                loading={
+                  isTransitioning &&
+                  pendingAction === actionDefinition.action
+                }
+                disabled={isBusy || selectedAction !== null}
+                onPress={() => handleAction(actionDefinition)}
+              />
             ))}
           </View>
         </View>
       ) : null}
 
+      {/* REASON FORM */}
       {selectedAction?.requiresReason ? (
         <View style={styles.reasonCard}>
-          <Text style={styles.reasonTitle}>
-            Request changes
-          </Text>
+          <Text style={styles.reasonTitle}>Request changes</Text>
 
           <Text style={styles.reasonDescription}>
-            Explain what needs to be updated before this work
-            order can be reviewed again.
+            Explain what needs to be updated before this work order
+            can be reviewed again.
+          </Text>
+
+          <Text style={styles.reasonLabel}>
+            Reason <Text style={styles.requiredMark}>*</Text>
           </Text>
 
           <TextInput
             style={styles.reasonInput}
             value={reason}
-            onChangeText={setReason}
-            placeholder="Describe the required changes"
+            onChangeText={(value) => {
+              setReason(value);
+
+              if (errorMessage === 'A reason is required.') {
+                setErrorMessage(null);
+              }
+            }}
+            placeholder="Describe the required changes..."
+            placeholderTextColor={colors.textMuted}
             multiline
-            editable={!isTransitioning}
-            maxLength={1000}
+            editable={!isBusy}
+            maxLength={MAX_REASON_LENGTH}
             textAlignVertical="top"
+            accessibilityLabel="Reason for requesting changes"
           />
 
-          <View style={styles.reasonActions}>
-            <Pressable
-              disabled={isTransitioning}
-              style={styles.cancelButton}
-              onPress={() => {
-                setSelectedAction(null);
-                setReason('');
-                setErrorMessage(null);
-              }}
-            >
-              <Text style={styles.cancelButtonText}>
-                Cancel
-              </Text>
-            </Pressable>
+          <View style={styles.reasonFooter}>
+            <Text style={styles.reasonHint}>
+              Provide clear, actionable feedback.
+            </Text>
 
-            <Pressable
-              disabled={isTransitioning}
-              style={[
-                styles.confirmButton,
-                isTransitioning && styles.buttonDisabled,
-              ]}
-              onPress={handleReasonTransition}
-            >
-              {isTransitioning ? (
-                <ActivityIndicator />
-              ) : (
-                <Text style={styles.confirmButtonText}>
-                  Confirm changes
-                </Text>
-              )}
-            </Pressable>
+            <Text style={styles.characterCount}>
+              {reason.length}/{MAX_REASON_LENGTH}
+            </Text>
+          </View>
+
+          <View style={styles.reasonActions}>
+            <View style={styles.reasonActionItem}>
+              <AppButton
+                label="Cancel"
+                variant="outline"
+                disabled={isBusy}
+                onPress={handleCancelReason}
+              />
+            </View>
+
+            <View style={styles.reasonActionItem}>
+              <AppButton
+                label="Confirm changes"
+                variant="primary"
+                loading={isTransitioning}
+                disabled={isBusy || !isReasonValid}
+                onPress={handleReasonTransition}
+              />
+            </View>
           </View>
         </View>
       ) : null}
-      
+
+      {/* HISTORY */}
       <View style={styles.historySection}>
-  <Text style={styles.sectionLabel}>
-    HISTORY
-  </Text>
+        <View style={styles.historyHeading}>
+          <Text style={styles.sectionLabel}>HISTORY</Text>
 
-  {isHistoryLoading ? (
-    <ActivityIndicator />
-  ) : history.length === 0 ? (
-    <Text style={styles.emptyHistory}>
-      No history available.
-    </Text>
-  ) : (
-    <View style={styles.timeline}>
-      {history.map((entry, index) => (
-        <View
-          key={entry.id}
-          style={styles.historyEntry}
-        >
-          <View style={styles.timelineIndicator}>
-            <View style={styles.timelineDot} />
-
-            {index < history.length - 1 ? (
-              <View style={styles.timelineLine} />
-            ) : null}
-          </View>
-
-          <View style={styles.historyContent}>
-            <Text style={styles.historyStatus}>
-              {formatStatus(entry.toStatus)}
+          {!isHistoryLoading && !historyError ? (
+            <Text style={styles.historyCount}>
+              {history.length} {history.length === 1 ? 'event' : 'events'}
             </Text>
-
-            <Text style={styles.historyMeta}>
-              {formatHistoryDate(entry.createdAt)}
-              {' · '}
-              {entry.changedByProfile.fullName ??
-                entry.changedByProfile.email}
-            </Text>
-
-            {entry.fromStatus ? (
-              <Text style={styles.historyTransition}>
-                {formatStatus(entry.fromStatus)}
-                {' → '}
-                {formatStatus(entry.toStatus)}
-              </Text>
-            ) : (
-              <Text style={styles.historyTransition}>
-                Work order created
-              </Text>
-            )}
-
-            {entry.reason ? (
-              <Text style={styles.historyReason}>
-                {entry.reason}
-              </Text>
-            ) : null}
-          </View>
+          ) : null}
         </View>
-      ))}
-    </View>
-  )}
-</View>
+
+        {isHistoryLoading ? (
+          <View style={styles.historyLoading}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.historyLoadingText}>
+              Loading activity...
+            </Text>
+          </View>
+        ) : historyError ? (
+          <View style={styles.historyErrorCard}>
+            <Text style={styles.historyErrorTitle}>
+              Unable to load history
+            </Text>
+
+            <Text style={styles.historyErrorText}>
+              {historyError}
+            </Text>
+
+            <View style={styles.historyRetry}>
+              <AppButton
+                label="Retry history"
+                variant="outline"
+                size="sm"
+                fullWidth={false}
+                disabled={isBusy}
+                onPress={() => {
+                  void loadHistory();
+                }}
+              />
+            </View>
+          </View>
+        ) : history.length === 0 ? (
+          <View style={styles.historyEmptyCard}>
+            <Text style={styles.emptyHistory}>
+              No activity recorded yet.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.timeline}>
+            {sortedHistory.map((entry, index) => (
+              <View key={entry.id} style={styles.historyEntry}>
+                <View style={styles.timelineIndicator}>
+                  <View
+                    style={[
+                      styles.timelineDot,
+                      index === 0 && styles.timelineDotLatest,
+                    ]}
+                  />
+
+                  {index < sortedHistory.length - 1 ? (
+                    <View style={styles.timelineLine} />
+                  ) : null}
+                </View>
+
+                <View style={styles.historyContent}>
+                  <View style={styles.historyStatusRow}>
+                    <StatusBadge
+                      status={entry.toStatus}
+                      size="sm"
+                    />
+
+                    {index === 0 ? (
+                      <Text style={styles.latestLabel}>
+                        LATEST
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <Text style={styles.historyMeta}>
+                    {formatHistoryDate(entry.createdAt)}
+                  </Text>
+
+                  <Text style={styles.historyActor}>
+                    {entry.changedByProfile.fullName ??
+                      entry.changedByProfile.email}
+                  </Text>
+
+                  <Text style={styles.historyTransition}>
+                    {entry.fromStatus
+                      ? `${formatStatus(entry.fromStatus)} → ${formatStatus(
+                          entry.toStatus,
+                        )}`
+                      : 'Work order created'}
+                  </Text>
+
+                  {entry.reason ? (
+                    <View style={styles.historyReasonBox}>
+                      <Text style={styles.historyReasonLabel}>
+                        REASON
+                      </Text>
+
+                      <Text style={styles.historyReason}>
+                        {entry.reason}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
       <Text style={styles.identifier}>
         ID {workOrder.id}
       </Text>
@@ -566,184 +662,133 @@ type DetailRowProps = {
   value: string;
 };
 
-const DetailRow = ({
-  label,
-  value,
-}: DetailRowProps) => (
+const DetailRow = ({ label, value }: DetailRowProps) => (
   <View style={styles.row}>
-    <Text style={styles.label}>
-      {label}
-    </Text>
-
-    <Text style={styles.value}>
-      {value}
-    </Text>
+    <Text style={styles.label}>{label}</Text>
+    <Text style={styles.value}>{value}</Text>
   </View>
 );
 
-const formatStatus = (status: WorkOrder['status']) => {
-  return status
+const formatStatus = (status: WorkOrder['status']) =>
+  status
     .toLowerCase()
     .split('_')
-    .map(
-      (word) =>
-        word.charAt(0).toUpperCase() + word.slice(1),
-    )
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
-};
 
-const formatDate = (date: string) => {
-  return new Intl.DateTimeFormat('en', {
+const formatDate = (date: string) =>
+  new Intl.DateTimeFormat('en', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(date));
-};
 
-const formatHistoryDate = (date: string) => {
-    return new Intl.DateTimeFormat('en', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(date));
-  };
+const formatHistoryDate = (date: string) =>
+  new Intl.DateTimeFormat('en', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(date));
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F7F8',
+    backgroundColor: colors.background,
   },
   content: {
-    padding: 24,
-    paddingBottom: 48,
+    paddingHorizontal: spacing.screen,
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.section,
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F7F7F8',
-    padding: 24,
+    backgroundColor: colors.background,
+    padding: spacing.screen,
   },
   loadingText: {
-    marginTop: 12,
-    opacity: 0.6,
+    marginTop: spacing.md,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
   },
-  back: {
-    marginTop: 12,
-    fontSize: 15,
-    fontWeight: '600',
+  navigationRow: {
+    alignItems: 'flex-start',
+    marginBottom: spacing.xxxl,
   },
   header: {
-    marginTop: 40,
+    gap: spacing.lg,
+    marginBottom: spacing.xxl,
   },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 2,
-    opacity: 0.5,
-  },
-  title: {
-    marginTop: 12,
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: '700',
-    letterSpacing: -1,
-  },
-  description: {
-    marginTop: 14,
-    fontSize: 16,
-    lineHeight: 24,
-    opacity: 0.6,
+  headerBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
   },
   card: {
-    marginTop: 32,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+  },
+  cardTitle: {
+    color: colors.text,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
   },
   row: {
-    minHeight: 64,
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 24,
+    gap: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#DDDDDD',
+    borderBottomColor: colors.border,
   },
   label: {
-    fontSize: 14,
-    opacity: 0.55,
+    color: colors.textMuted,
+    fontSize: typography.fontSize.sm,
   },
   value: {
     flex: 1,
+    color: colors.text,
     textAlign: 'right',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  errorText: {
-    marginTop: 10,
-    textAlign: 'center',
-    opacity: 0.6,
-  },
-  errorBox: {
-    marginTop: 20,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-  },
-  errorBoxText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  secondaryButton: {
-    marginTop: 20,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-  },
-  secondaryButtonText: {
-    fontWeight: '600',
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
   },
   actionsSection: {
-    marginTop: 32,
+    marginTop: spacing.xxl,
   },
   sectionLabel: {
-    marginBottom: 12,
-    fontSize: 11,
-    fontWeight: '700',
+    marginBottom: spacing.md,
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
     letterSpacing: 1.5,
-    opacity: 0.5,
   },
   actions: {
-    gap: 12,
+    gap: spacing.md,
   },
-  actionButton: {
-    minHeight: 54,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: '#111111',
-    paddingHorizontal: 18,
-  },
-  actionButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  secondaryActionButton: {
+  errorBox: {
+    marginTop: spacing.lg,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#111111',
-    backgroundColor: 'transparent',
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    padding: spacing.lg,
   },
-  secondaryActionButtonText: {
-    color: '#111111',
+  errorBoxText: {
+    color: '#991B1B',
+    fontSize: typography.fontSize.sm,
+    lineHeight: 20,
   },
   buttonPressed: {
     opacity: 0.75,
@@ -752,166 +797,272 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   operatorCard: {
-    marginTop: 20,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    padding: 20,
+    marginTop: spacing.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
   },
   operatorTitle: {
-    marginBottom: 14,
-    fontSize: 18,
-    fontWeight: '700',
+    color: colors.text,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+  },
+  operatorDescription: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
+    lineHeight: 20,
+  },
+  operatorList: {
+    gap: spacing.sm,
   },
   operatorOption: {
-    minHeight: 64,
+    minHeight: 72,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#DDDDDD',
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   operatorInfo: {
     flex: 1,
   },
   operatorName: {
-    fontSize: 15,
-    fontWeight: '700',
+    color: colors.text,
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold,
   },
   operatorEmail: {
-    marginTop: 4,
-    fontSize: 13,
-    opacity: 0.55,
+    marginTop: spacing.xs,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
   },
   assignLabel: {
-    fontSize: 14,
-    fontWeight: '700',
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
   },
   emptyOperators: {
-    fontSize: 14,
-    opacity: 0.55,
+    paddingVertical: spacing.lg,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
   },
-  cancelOperatorButton: {
-    alignSelf: 'flex-start',
-    marginTop: 18,
-    paddingVertical: 8,
+  operatorCancel: {
+    marginTop: spacing.lg,
+    alignItems: 'flex-start',
   },
   reasonCard: {
-    marginTop: 20,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    padding: 20,
+    marginTop: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.xl,
   },
   reasonTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    color: colors.text,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
   },
   reasonDescription: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 20,
-    opacity: 0.6,
+    marginTop: spacing.sm,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
+    lineHeight: 21,
+  },
+  reasonLabel: {
+    marginTop: spacing.xl,
+    marginBottom: spacing.sm,
+    color: colors.text,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  requiredMark: {
+    color: '#DC2626',
   },
   reasonInput: {
-    minHeight: 120,
-    marginTop: 18,
+    minHeight: 128,
     borderWidth: 1,
-    borderColor: '#D9D9DE',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 15,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    fontSize: typography.fontSize.md,
+    lineHeight: 22,
+  },
+  reasonFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  reasonHint: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+  },
+  characterCount: {
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
   },
   reasonActions: {
-    marginTop: 16,
+    marginTop: spacing.xl,
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.md,
   },
-  cancelButton: {
+  reasonActionItem: {
     flex: 1,
-    minHeight: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderRadius: 12,
-  },
-  cancelButtonText: {
-    fontWeight: '600',
-  },
-  confirmButton: {
-    flex: 1,
-    minHeight: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: '#111111',
-  },
-  confirmButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
+    minWidth: 0,
   },
   historySection: {
-    marginTop: 40,
+    marginTop: spacing.xxxl,
+  },
+  historyHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  historyCount: {
+    marginBottom: spacing.md,
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+  },
+  historyLoading: {
+    minHeight: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  historyLoadingText: {
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
+  },
+  historyErrorCard: {
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+  },
+  historyErrorTitle: {
+    color: colors.text,
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold,
+  },
+  historyErrorText: {
+    marginTop: spacing.sm,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
+  },
+  historyRetry: {
+    marginTop: spacing.lg,
+    alignItems: 'flex-start',
+  },
+  historyEmptyCard: {
+    padding: spacing.xl,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  emptyHistory: {
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
   },
   timeline: {
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    padding: 20,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.xl,
   },
   historyEntry: {
     flexDirection: 'row',
     minHeight: 88,
   },
   timelineIndicator: {
-    width: 24,
+    width: 22,
     alignItems: 'center',
   },
   timelineDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#111111',
-    marginTop: 5,
+    backgroundColor: colors.textMuted,
+    marginTop: spacing.sm,
+  },
+  timelineDotLatest: {
+    backgroundColor: colors.primary,
   },
   timelineLine: {
     flex: 1,
-    width: 1,
-    marginVertical: 5,
-    backgroundColor: '#D9D9DE',
+    width: 2,
+    marginVertical: spacing.sm,
+    backgroundColor: colors.border,
   },
   historyContent: {
     flex: 1,
-    paddingLeft: 12,
-    paddingBottom: 22,
+    paddingLeft: spacing.md,
+    paddingBottom: spacing.xxl,
   },
-  historyStatus: {
-    fontSize: 15,
-    fontWeight: '700',
+  historyStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  latestLabel: {
+    color: colors.primary,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 1,
   },
   historyMeta: {
-    marginTop: 4,
-    fontSize: 12,
-    opacity: 0.5,
+    marginTop: spacing.sm,
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+  },
+  historyActor: {
+    marginTop: spacing.xs,
+    color: colors.text,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
   },
   historyTransition: {
-    marginTop: 7,
-    fontSize: 13,
-    opacity: 0.65,
+    marginTop: spacing.sm,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
+  },
+  historyReasonBox: {
+    marginTop: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.background,
+    padding: spacing.md,
+  },
+  historyReasonLabel: {
+    marginBottom: spacing.xs,
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 1,
   },
   historyReason: {
-    marginTop: 8,
-    borderRadius: 8,
-    backgroundColor: '#F7F7F8',
-    padding: 10,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  emptyHistory: {
-    fontSize: 14,
-    opacity: 0.55,
+    color: colors.text,
+    fontSize: typography.fontSize.sm,
+    lineHeight: 20,
   },
   identifier: {
-    marginTop: 24,
-    fontSize: 11,
-    opacity: 0.35,
+    marginTop: spacing.xxl,
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
   },
 });

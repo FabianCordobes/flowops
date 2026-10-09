@@ -8,77 +8,94 @@ import {
   import { DataSource } from 'typeorm';
   import { WorkOrdersService } from './work-orders.service.js';
 import { WorkOrderStatusHistory } from './entities/work-order-status-history.entity.js';
-  
+import { WorkOrderSort } from './dto/list-work-orders-query.dto.js';
+
   describe('WorkOrdersService', () => {
     let service: WorkOrdersService;
-  
+
+    const queryBuilder = {
+      andWhere: vi.fn(),
+      orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
+      getMany: vi.fn(),
+    };
+
     const workOrderRepository = {
+      createQueryBuilder: vi.fn(),
       create: vi.fn(),
       save: vi.fn(),
       find: vi.fn(),
       findOne: vi.fn(),
     };
-  
+
     const historyRepository = {
       create: vi.fn(),
       save: vi.fn(),
       find: vi.fn(),
     };
-  
+
     const manager = {
       getRepository: vi.fn(),
     };
-  
+
     const dataSource = {
       transaction: vi.fn(),
       getRepository: vi.fn(),
     };
-  
+
     beforeEach(() => {
+        Object.values(queryBuilder).forEach((mock) => mock.mockReset());
+
+        queryBuilder.andWhere.mockReturnValue(queryBuilder);
+        queryBuilder.orderBy.mockReturnValue(queryBuilder);
+        queryBuilder.addOrderBy.mockReturnValue(queryBuilder);
+
+        workOrderRepository.createQueryBuilder.mockReset();
+        workOrderRepository.createQueryBuilder.mockReturnValue(queryBuilder);
         workOrderRepository.create.mockReset();
         workOrderRepository.save.mockReset();
         workOrderRepository.find.mockReset();
         workOrderRepository.findOne.mockReset();
-      
+
         historyRepository.create.mockReset();
         historyRepository.save.mockReset();
         historyRepository.find.mockReset();
-      
+
         manager.getRepository.mockReset();
-      
+
         dataSource.transaction.mockReset();
         dataSource.getRepository.mockReset();
-      
+
         manager.getRepository
           .mockReturnValueOnce(workOrderRepository)
           .mockReturnValueOnce(historyRepository);
-      
+
           dataSource.getRepository.mockImplementation(
             (entity) => {
               if (entity === WorkOrderStatusHistory) {
                 return historyRepository;
               }
-          
+
               return workOrderRepository;
             },
           );
-      
+
         dataSource.transaction.mockImplementation(
           async (callback) => callback(manager),
         );
-      
+
         service = new WorkOrdersService(
           dataSource as unknown as DataSource,
         );
       });
-  
+
     it('should create a work order with NEW status and MEDIUM priority by default', async () => {
       const dto = {
         title: 'Prepare customer onboarding',
       };
-  
+
       const createdBy = 'admin-user-id';
-  
+
       const createdWorkOrder = {
         id: 'work-order-id',
         title: dto.title,
@@ -89,19 +106,19 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
         assignedTo: null,
         dueDate: null,
       };
-  
+
       workOrderRepository.create.mockReturnValue(createdWorkOrder);
       workOrderRepository.save.mockResolvedValue(createdWorkOrder);
-  
+
       historyRepository.create.mockImplementation((value) => value);
       historyRepository.save.mockResolvedValue({
         id: 'history-id',
       });
-  
+
       const result = await service.create(dto, createdBy);
-  
+
       expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-  
+
       expect(workOrderRepository.create).toHaveBeenCalledWith({
         title: dto.title,
         description: null,
@@ -111,38 +128,38 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
         status: WorkOrderStatus.NEW,
         assignedTo: null,
       });
-  
+
       expect(workOrderRepository.save).toHaveBeenCalledWith(
         createdWorkOrder,
       );
-  
+
       expect(result).toEqual(createdWorkOrder);
     });
-  
+
     it('should use the provided priority and convert dueDate to Date', async () => {
       const dto = {
         title: 'Urgent customer onboarding',
         priority: WorkOrderPriority.URGENT,
         dueDate: '2026-10-10T18:00:00.000Z',
       };
-  
+
       const createdBy = 'admin-user-id';
-  
+
       const createdWorkOrder = {
         id: 'work-order-id',
         title: dto.title,
       };
-  
+
       workOrderRepository.create.mockReturnValue(createdWorkOrder);
       workOrderRepository.save.mockResolvedValue(createdWorkOrder);
-  
+
       historyRepository.create.mockImplementation((value) => value);
       historyRepository.save.mockResolvedValue({
         id: 'history-id',
       });
-  
+
       await service.create(dto, createdBy);
-  
+
       expect(workOrderRepository.create).toHaveBeenCalledWith({
         title: dto.title,
         description: null,
@@ -153,29 +170,29 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
         assignedTo: null,
       });
     });
-  
+
     it('should create the initial status history entry', async () => {
       const dto = {
         title: 'Prepare customer onboarding',
       };
-  
+
       const createdBy = 'admin-user-id';
-  
+
       const savedWorkOrder = {
         id: 'work-order-id',
         title: dto.title,
       };
-  
+
       workOrderRepository.create.mockReturnValue(savedWorkOrder);
       workOrderRepository.save.mockResolvedValue(savedWorkOrder);
-  
+
       historyRepository.create.mockImplementation((value) => value);
       historyRepository.save.mockResolvedValue({
         id: 'history-id',
       });
-  
+
       await service.create(dto, createdBy);
-  
+
       expect(historyRepository.create).toHaveBeenCalledWith({
         workOrderId: savedWorkOrder.id,
         fromStatus: null,
@@ -183,7 +200,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
         changedBy: createdBy,
         reason: 'Work order created',
       });
-  
+
       expect(historyRepository.save).toHaveBeenCalledWith({
         workOrderId: savedWorkOrder.id,
         fromStatus: null,
@@ -192,111 +209,205 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
         reason: 'Work order created',
       });
     });
-  
+
     it('should create the work order and history inside the same transaction', async () => {
       const dto = {
         title: 'Transactional work order',
       };
-  
+
       const createdBy = 'admin-user-id';
-  
+
       const savedWorkOrder = {
         id: 'work-order-id',
         title: dto.title,
       };
-  
+
       workOrderRepository.create.mockReturnValue(savedWorkOrder);
       workOrderRepository.save.mockResolvedValue(savedWorkOrder);
-  
+
       historyRepository.create.mockImplementation((value) => value);
       historyRepository.save.mockResolvedValue({
         id: 'history-id',
       });
-  
+
       await service.create(dto, createdBy);
-  
+
       expect(dataSource.transaction).toHaveBeenCalledTimes(1);
       expect(manager.getRepository).toHaveBeenCalledTimes(2);
-  
+
       expect(workOrderRepository.save).toHaveBeenCalledTimes(1);
       expect(historyRepository.save).toHaveBeenCalledTimes(1);
     });
 
-    it('should return all work orders for ADMIN', async () => {
-        const workOrders = [
-          { id: 'work-order-1' },
-          { id: 'work-order-2' },
-        ];
-      
-        workOrderRepository.find.mockResolvedValue(workOrders);
-      
+    describe('findAll', () => {
+      const workOrders = [
+        { id: 'work-order-1' },
+        { id: 'work-order-2' },
+      ];
+
+      beforeEach(() => {
+        queryBuilder.getMany.mockResolvedValue(workOrders);
+      });
+
+      it('should return all work orders for ADMIN', async () => {
         const result = await service.findAll(
           'admin-user-id',
           UserRole.ADMIN,
         );
-      
-        expect(workOrderRepository.find).toHaveBeenCalledWith({
-          where: {},
-          order: {
-            createdAt: 'DESC',
-          },
-        });
-      
+
+        expect(workOrderRepository.createQueryBuilder)
+          .toHaveBeenCalledWith('workOrder');
+
+        expect(queryBuilder.andWhere).not.toHaveBeenCalled();
+
+        expect(queryBuilder.orderBy).toHaveBeenCalledWith(
+          'workOrder.createdAt',
+          'DESC',
+        );
+
         expect(result).toEqual(workOrders);
       });
-      
-      it('should return only assigned work orders for OPERATOR', async () => {
-        const workOrders = [
-          {
-            id: 'work-order-1',
-            assignedTo: 'operator-user-id',
-          },
-        ];
-      
-        workOrderRepository.find.mockResolvedValue(workOrders);
-      
-        const result = await service.findAll(
+
+      it('should restrict OPERATOR to assigned work orders', async () => {
+        await service.findAll(
           'operator-user-id',
           UserRole.OPERATOR,
         );
-      
-        expect(workOrderRepository.find).toHaveBeenCalledWith({
-          where: {
-            assignedTo: 'operator-user-id',
-          },
-          order: {
-            createdAt: 'DESC',
-          },
-        });
-      
-        expect(result).toEqual(workOrders);
+
+        expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+          'workOrder.assignedTo = :userId',
+          { userId: 'operator-user-id' },
+        );
       });
-      
+
+      it('should filter by status', async () => {
+        await service.findAll(
+          'admin-user-id',
+          UserRole.ADMIN,
+          { status: WorkOrderStatus.IN_PROGRESS },
+        );
+
+        expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+          'workOrder.status = :status',
+          { status: WorkOrderStatus.IN_PROGRESS },
+        );
+      });
+
+      it('should filter by priority', async () => {
+        await service.findAll(
+          'admin-user-id',
+          UserRole.ADMIN,
+          { priority: WorkOrderPriority.HIGH },
+        );
+
+        expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+          'workOrder.priority = :priority',
+          { priority: WorkOrderPriority.HIGH },
+        );
+      });
+
+      it('should search by title', async () => {
+        await service.findAll(
+          'admin-user-id',
+          UserRole.ADMIN,
+          { search: '  inspection  ' },
+        );
+
+        expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+          expect.stringContaining('ILIKE'),
+          { search: '%inspection%' },
+        );
+      });
+
+      it('should ignore empty search text', async () => {
+        await service.findAll(
+          'admin-user-id',
+          UserRole.ADMIN,
+          { search: '   ' },
+        );
+
+        expect(queryBuilder.andWhere).not.toHaveBeenCalled();
+      });
+
+      it('should sort oldest first when requested', async () => {
+        await service.findAll(
+          'admin-user-id',
+          UserRole.ADMIN,
+          { sort: WorkOrderSort.OLDEST },
+        );
+
+        expect(queryBuilder.orderBy).toHaveBeenCalledWith(
+          'workOrder.createdAt',
+          'ASC',
+        );
+      });
+
+      it('should combine filters without removing operator restrictions', async () => {
+        await service.findAll(
+          'operator-user-id',
+          UserRole.OPERATOR,
+          {
+            status: WorkOrderStatus.ASSIGNED,
+            priority: WorkOrderPriority.URGENT,
+          },
+        );
+
+        expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+          'workOrder.assignedTo = :userId',
+          { userId: 'operator-user-id' },
+        );
+
+        expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+          'workOrder.status = :status',
+          { status: WorkOrderStatus.ASSIGNED },
+        );
+
+        expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+          'workOrder.priority = :priority',
+          { priority: WorkOrderPriority.URGENT },
+        );
+
+        expect(queryBuilder.andWhere).toHaveBeenCalledTimes(3);
+      });
+
+      it('should use stable ordering', async () => {
+        await service.findAll(
+          'admin-user-id',
+          UserRole.ADMIN,
+        );
+
+        expect(queryBuilder.addOrderBy).toHaveBeenCalledWith(
+          'workOrder.id',
+          'ASC',
+        );
+      });
+    });
+
       it('should return any work order requested by ADMIN', async () => {
         const workOrder = {
           id: 'work-order-id',
         };
-      
+
         workOrderRepository.findOne.mockResolvedValue(workOrder);
-      
+
         const result = await service.findOne(
           'work-order-id',
           'admin-user-id',
           UserRole.ADMIN,
         );
-      
+
         expect(workOrderRepository.findOne).toHaveBeenCalledWith({
           where: {
             id: 'work-order-id',
           },
         });
-      
+
         expect(result).toEqual(workOrder);
       });
-      
+
       it('should restrict OPERATOR to assigned work orders', async () => {
         workOrderRepository.findOne.mockResolvedValue(null);
-      
+
         await expect(
           service.findOne(
             'work-order-id',
@@ -304,7 +415,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
             UserRole.OPERATOR,
           ),
         ).rejects.toThrow('Work order not found');
-      
+
         expect(workOrderRepository.findOne).toHaveBeenCalledWith({
           where: {
             id: 'work-order-id',
@@ -320,33 +431,33 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
           status: WorkOrderStatus.NEW,
           assignedTo: null,
         };
-      
+
         const savedWorkOrder = {
           ...workOrder,
           status: WorkOrderStatus.ASSIGNED,
           assignedTo: 'operator-user-id',
         };
-      
+
         workOrderRepository.findOne.mockResolvedValue(workOrder);
         workOrderRepository.save.mockResolvedValue(savedWorkOrder);
-      
+
         historyRepository.create.mockImplementation((value) => value);
         historyRepository.save.mockResolvedValue({
           id: 'history-id',
         });
-      
+
         const result = await service.assign(
           'work-order-id',
           'operator-user-id',
           'admin-user-id',
         );
-      
+
         expect(workOrderRepository.findOne).toHaveBeenCalledWith({
           where: {
             id: 'work-order-id',
           },
         });
-      
+
         expect(workOrderRepository.save).toHaveBeenCalledWith(
           expect.objectContaining({
             id: 'work-order-id',
@@ -354,7 +465,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
             assignedTo: 'operator-user-id',
           }),
         );
-      
+
         expect(result).toEqual(savedWorkOrder);
       });
 
@@ -364,23 +475,23 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
           status: WorkOrderStatus.NEW,
           assignedTo: null,
         };
-      
+
         workOrderRepository.findOne.mockResolvedValue(workOrder);
         workOrderRepository.save.mockImplementation(
           async (value) => value,
         );
-      
+
         historyRepository.create.mockImplementation((value) => value);
         historyRepository.save.mockImplementation(
           async (value) => value,
         );
-      
+
         await service.assign(
           'work-order-id',
           'operator-user-id',
           'admin-user-id',
         );
-      
+
         expect(historyRepository.create).toHaveBeenCalledWith({
           workOrderId: 'work-order-id',
           fromStatus: WorkOrderStatus.NEW,
@@ -388,7 +499,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
           changedBy: 'admin-user-id',
           reason: 'Work order assigned',
         });
-      
+
         expect(historyRepository.save).toHaveBeenCalledWith({
           workOrderId: 'work-order-id',
           fromStatus: WorkOrderStatus.NEW,
@@ -400,7 +511,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
 
       it('should throw when assigning a work order that does not exist', async () => {
         workOrderRepository.findOne.mockResolvedValue(null);
-      
+
         await expect(
           service.assign(
             'missing-work-order-id',
@@ -408,14 +519,14 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
             'admin-user-id',
           ),
         ).rejects.toThrow('Work order not found');
-      
+
         expect(workOrderRepository.save).not.toHaveBeenCalled();
         expect(historyRepository.save).not.toHaveBeenCalled();
       });
 
       it('should throw when assigning a work order that does not exist', async () => {
         workOrderRepository.findOne.mockResolvedValue(null);
-      
+
         await expect(
           service.assign(
             'missing-work-order-id',
@@ -423,7 +534,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
             'admin-user-id',
           ),
         ).rejects.toThrow('Work order not found');
-      
+
         expect(workOrderRepository.save).not.toHaveBeenCalled();
         expect(historyRepository.save).not.toHaveBeenCalled();
       });
@@ -434,32 +545,32 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
           status: WorkOrderStatus.ASSIGNED,
           assignedTo: 'operator-user-id',
         };
-      
+
         workOrderRepository.findOne.mockResolvedValue(workOrder);
-      
+
         workOrderRepository.save.mockImplementation(
           async (value) => value,
         );
-      
+
         historyRepository.create.mockImplementation(
           (value) => value,
         );
-      
+
         historyRepository.save.mockImplementation(
           async (value) => value,
         );
-      
+
         const result = await service.transition(
           'work-order-id',
           WorkOrderAction.START,
           'operator-user-id',
           UserRole.OPERATOR,
         );
-      
+
         expect(result.status).toBe(
           WorkOrderStatus.IN_PROGRESS,
         );
-      
+
         expect(historyRepository.create).toHaveBeenCalledWith({
           workOrderId: 'work-order-id',
           fromStatus: WorkOrderStatus.ASSIGNED,
@@ -475,7 +586,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
           status: WorkOrderStatus.IN_PROGRESS,
           assignedTo: 'operator-user-id',
         };
-      
+
         workOrderRepository.findOne.mockResolvedValue(workOrder);
         workOrderRepository.save.mockImplementation(
           async (value) => value,
@@ -486,18 +597,18 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
         historyRepository.save.mockImplementation(
           async (value) => value,
         );
-      
+
         const result = await service.transition(
           'work-order-id',
           WorkOrderAction.SUBMIT_FOR_REVIEW,
           'operator-user-id',
           UserRole.OPERATOR,
         );
-      
+
         expect(result.status).toBe(
           WorkOrderStatus.IN_REVIEW,
         );
-      
+
         expect(historyRepository.create).toHaveBeenCalledWith({
           workOrderId: 'work-order-id',
           fromStatus: WorkOrderStatus.IN_PROGRESS,
@@ -513,7 +624,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
           status: WorkOrderStatus.IN_REVIEW,
           assignedTo: 'operator-user-id',
         };
-      
+
         workOrderRepository.findOne.mockResolvedValue(workOrder);
         workOrderRepository.save.mockImplementation(
           async (value) => value,
@@ -524,7 +635,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
         historyRepository.save.mockImplementation(
           async (value) => value,
         );
-      
+
         const result = await service.transition(
           'work-order-id',
           WorkOrderAction.REQUEST_CHANGES,
@@ -532,11 +643,11 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
           UserRole.ADMIN,
           'Customer documentation is incomplete',
         );
-      
+
         expect(result.status).toBe(
           WorkOrderStatus.IN_PROGRESS,
         );
-      
+
         expect(historyRepository.create).toHaveBeenCalledWith({
           workOrderId: 'work-order-id',
           fromStatus: WorkOrderStatus.IN_REVIEW,
@@ -591,7 +702,7 @@ it('should require a reason when requesting changes', async () => {
       status: WorkOrderStatus.IN_REVIEW,
       assignedTo: 'operator-user-id',
     });
-  
+
     await expect(
       service.transition(
         'work-order-id',
@@ -602,7 +713,7 @@ it('should require a reason when requesting changes', async () => {
     ).rejects.toThrow(
       'Reason is required for this transition',
     );
-  
+
     expect(workOrderRepository.save).not.toHaveBeenCalled();
     expect(historyRepository.save).not.toHaveBeenCalled();
   });
@@ -613,7 +724,7 @@ it('should require a reason when requesting changes', async () => {
       status: WorkOrderStatus.IN_REVIEW,
       assignedTo: 'operator-user-id',
     });
-  
+
     await expect(
       service.transition(
         'work-order-id',
@@ -633,7 +744,7 @@ it('should require a reason when requesting changes', async () => {
       status: WorkOrderStatus.IN_REVIEW,
       assignedTo: 'operator-user-id',
     };
-  
+
     workOrderRepository.findOne.mockResolvedValue(workOrder);
     workOrderRepository.save.mockImplementation(
       async (value) => value,
@@ -644,18 +755,18 @@ it('should require a reason when requesting changes', async () => {
     historyRepository.save.mockImplementation(
       async (value) => value,
     );
-  
+
     const result = await service.transition(
       'work-order-id',
       WorkOrderAction.APPROVE,
       'admin-user-id',
       UserRole.ADMIN,
     );
-  
+
     expect(result.status).toBe(
       WorkOrderStatus.COMPLETED,
     );
-  
+
     expect(historyRepository.create).toHaveBeenCalledWith({
       workOrderId: 'work-order-id',
       fromStatus: WorkOrderStatus.IN_REVIEW,
@@ -676,7 +787,7 @@ it('should require a reason when requesting changes', async () => {
     ).rejects.toThrow(
       'You do not have permission to perform this transition',
     );
-  
+
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
@@ -686,7 +797,7 @@ it('should require a reason when requesting changes', async () => {
       status: WorkOrderStatus.ASSIGNED,
       assignedTo: 'another-operator-id',
     });
-  
+
     await expect(
       service.transition(
         'work-order-id',
@@ -695,7 +806,7 @@ it('should require a reason when requesting changes', async () => {
         UserRole.OPERATOR,
       ),
     ).rejects.toThrow('Work order not found');
-  
+
     expect(workOrderRepository.save).not.toHaveBeenCalled();
     expect(historyRepository.save).not.toHaveBeenCalled();
   });
@@ -706,7 +817,7 @@ it('should require a reason when requesting changes', async () => {
       status: WorkOrderStatus.NEW,
       assignedTo: 'operator-user-id',
     });
-  
+
     await expect(
       service.transition(
         'work-order-id',
@@ -717,14 +828,14 @@ it('should require a reason when requesting changes', async () => {
     ).rejects.toThrow(
       'Action START is not allowed from status NEW',
     );
-  
+
     expect(workOrderRepository.save).not.toHaveBeenCalled();
     expect(historyRepository.save).not.toHaveBeenCalled();
   });
 
   it('should reject a transition for a work order that does not exist', async () => {
     workOrderRepository.findOne.mockResolvedValue(null);
-  
+
     await expect(
       service.transition(
         'missing-work-order-id',
@@ -733,7 +844,7 @@ it('should require a reason when requesting changes', async () => {
         UserRole.OPERATOR,
       ),
     ).rejects.toThrow('Work order not found');
-  
+
     expect(workOrderRepository.save).not.toHaveBeenCalled();
     expect(historyRepository.save).not.toHaveBeenCalled();
   });
@@ -744,7 +855,7 @@ it('should require a reason when requesting changes', async () => {
       createdBy: 'admin-user-id',
       assignedTo: 'operator-user-id',
     };
-  
+
     const history = [
       {
         id: 'history-1',
@@ -763,27 +874,27 @@ it('should require a reason when requesting changes', async () => {
         reason: 'Work order assigned',
       },
     ];
-  
+
     workOrderRepository.findOne.mockResolvedValue(
       workOrder,
     );
-  
+
     historyRepository.find.mockResolvedValue(history);
-  
+
     const result = await service.findHistory(
       'work-order-id',
       'admin-user-id',
       UserRole.ADMIN,
     );
-  
+
     expect(result).toEqual(history);
-  
+
     expect(workOrderRepository.findOne).toHaveBeenCalledWith({
       where: {
         id: 'work-order-id',
       },
     });
-  
+
     expect(historyRepository.find).toHaveBeenCalledWith({
         where: {
           workOrderId: 'work-order-id',
@@ -802,7 +913,7 @@ it('should require a reason when requesting changes', async () => {
       id: 'work-order-id',
       assignedTo: 'operator-user-id',
     };
-  
+
     const history = [
       {
         id: 'history-1',
@@ -813,28 +924,28 @@ it('should require a reason when requesting changes', async () => {
         reason: 'Work order started',
       },
     ];
-  
+
     workOrderRepository.findOne.mockResolvedValue(
       workOrder,
     );
-  
+
     historyRepository.find.mockResolvedValue(history);
-  
+
     const result = await service.findHistory(
       'work-order-id',
       'operator-user-id',
       UserRole.OPERATOR,
     );
-  
+
     expect(result).toEqual(history);
-  
+
     expect(workOrderRepository.findOne).toHaveBeenCalledWith({
       where: {
         id: 'work-order-id',
         assignedTo: 'operator-user-id',
       },
     });
-  
+
     expect(historyRepository.find).toHaveBeenCalledWith({
         where: {
           workOrderId: 'work-order-id',
@@ -850,7 +961,7 @@ it('should require a reason when requesting changes', async () => {
 
   it('should not return history for a work order not assigned to the OPERATOR', async () => {
     workOrderRepository.findOne.mockResolvedValue(null);
-  
+
     await expect(
       service.findHistory(
         'work-order-id',
@@ -858,7 +969,7 @@ it('should require a reason when requesting changes', async () => {
         UserRole.OPERATOR,
       ),
     ).rejects.toThrow('Work order not found');
-  
+
     expect(historyRepository.find).not.toHaveBeenCalled();
   });
 
@@ -871,15 +982,15 @@ it('should require a reason when requesting changes', async () => {
       dueDate: null,
       status: WorkOrderStatus.NEW,
     };
-  
+
     workOrderRepository.findOne.mockResolvedValue(
       workOrder,
     );
-  
+
     workOrderRepository.save.mockImplementation(
       async (value) => value,
     );
-  
+
     const result = await service.update(
       'work-order-id',
       {
@@ -889,7 +1000,7 @@ it('should require a reason when requesting changes', async () => {
         dueDate: '2026-10-20T18:00:00.000Z',
       },
     );
-  
+
     expect(result.title).toBe('Updated title');
     expect(result.description).toBe(
       'Updated description',
@@ -897,15 +1008,15 @@ it('should require a reason when requesting changes', async () => {
     expect(result.priority).toBe(
       WorkOrderPriority.HIGH,
     );
-  
+
     expect(result.dueDate).toEqual(
       new Date('2026-10-20T18:00:00.000Z'),
     );
-  
+
     expect(result.status).toBe(
       WorkOrderStatus.NEW,
     );
-  
+
     expect(workOrderRepository.save).toHaveBeenCalledWith(
       workOrder,
     );
@@ -920,32 +1031,32 @@ it('should require a reason when requesting changes', async () => {
       dueDate: null,
       status: WorkOrderStatus.NEW,
     };
-  
+
     workOrderRepository.findOne.mockResolvedValue(
       workOrder,
     );
-  
+
     workOrderRepository.save.mockImplementation(
       async (value) => value,
     );
-  
+
     const result = await service.update(
       'work-order-id',
       {
         priority: WorkOrderPriority.URGENT,
       },
     );
-  
+
     expect(result.title).toBe('Original title');
-  
+
     expect(result.description).toBe(
       'Original description',
     );
-  
+
     expect(result.priority).toBe(
       WorkOrderPriority.URGENT,
     );
-  
+
     expect(result.status).toBe(
       WorkOrderStatus.NEW,
     );
@@ -959,15 +1070,15 @@ it('should require a reason when requesting changes', async () => {
       priority: WorkOrderPriority.MEDIUM,
       dueDate: null,
     };
-  
+
     workOrderRepository.findOne.mockResolvedValue(
       workOrder,
     );
-  
+
     workOrderRepository.save.mockImplementation(
       async (value) => value,
     );
-  
+
     const result = await service.update(
       'work-order-id',
       {
@@ -975,9 +1086,9 @@ it('should require a reason when requesting changes', async () => {
         description: '  Updated description  ',
       },
     );
-  
+
     expect(result.title).toBe('Updated title');
-  
+
     expect(result.description).toBe(
       'Updated description',
     );
@@ -985,7 +1096,7 @@ it('should require a reason when requesting changes', async () => {
 
   it('should throw when updating a work order that does not exist', async () => {
     workOrderRepository.findOne.mockResolvedValue(null);
-  
+
     await expect(
       service.update(
         'work-order-id',
@@ -994,7 +1105,7 @@ it('should require a reason when requesting changes', async () => {
         },
       ),
     ).rejects.toThrow('Work order not found');
-  
+
     expect(workOrderRepository.save).not.toHaveBeenCalled();
   });
 
@@ -1004,7 +1115,7 @@ it('should require a reason when requesting changes', async () => {
       title: 'Original title',
       priority: WorkOrderPriority.MEDIUM,
     });
-  
+
     await expect(
       service.update(
         'work-order-id',
@@ -1013,7 +1124,7 @@ it('should require a reason when requesting changes', async () => {
         },
       ),
     ).rejects.toThrow('Title cannot be empty');
-  
+
     expect(workOrderRepository.save).not.toHaveBeenCalled();
   });
   });

@@ -5,6 +5,7 @@ import { CreateWorkOrderDto } from './dto/create-work-order.dto.js';
 import { WorkOrderStatusHistory } from './entities/work-order-status-history.entity.js';
 import { WorkOrder } from './entities/work-order.entity.js';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto.js';
+import { ListWorkOrdersQueryDto, WorkOrderSort } from './dto/list-work-orders-query.dto.js';
 
 type TransitionDefinition = {
     from: WorkOrderStatus;
@@ -14,7 +15,7 @@ type TransitionDefinition = {
     requiresReason?: boolean;
     historyReason: string;
   };
-  
+
   const WORK_ORDER_TRANSITIONS: Record<
     WorkOrderAction,
     TransitionDefinition
@@ -26,7 +27,7 @@ type TransitionDefinition = {
       requiresOwnership: true,
       historyReason: 'Work order started',
     },
-  
+
     [WorkOrderAction.SUBMIT_FOR_REVIEW]: {
       from: WorkOrderStatus.IN_PROGRESS,
       to: WorkOrderStatus.IN_REVIEW,
@@ -34,7 +35,7 @@ type TransitionDefinition = {
       requiresOwnership: true,
       historyReason: 'Work order submitted for review',
     },
-  
+
     [WorkOrderAction.REQUEST_CHANGES]: {
       from: WorkOrderStatus.IN_REVIEW,
       to: WorkOrderStatus.IN_PROGRESS,
@@ -42,7 +43,7 @@ type TransitionDefinition = {
       requiresReason: true,
       historyReason: 'Changes requested',
     },
-  
+
     [WorkOrderAction.APPROVE]: {
       from: WorkOrderStatus.IN_REVIEW,
       to: WorkOrderStatus.COMPLETED,
@@ -83,35 +84,72 @@ export class WorkOrdersService {
       await historyRepository.save(history);
 
       return savedWorkOrder;
-    });   
+    });
   }
 
   async findAll(
     userId: string,
     role: UserRole,
+    filters: ListWorkOrdersQueryDto = {},
   ): Promise<WorkOrder[]> {
     const repository = this.dataSource.getRepository(WorkOrder);
-  
-    const where =
-      role === UserRole.ADMIN
-        ? {}
-        : { assignedTo: userId };
-  
-    return repository.find({
-      where,
-      order: {
-        createdAt: 'DESC',
-      },
-    });
+
+    const query = repository.createQueryBuilder('workOrder');
+
+    // Preserve role-based access restrictions
+    if (role !== UserRole.ADMIN) {
+      query.andWhere('workOrder.assignedTo = :userId', {
+        userId,
+      });
+    }
+
+    // Filter by status
+    if (filters.status) {
+      query.andWhere('workOrder.status = :status', {
+        status: filters.status,
+      });
+    }
+
+    // Filter by priority
+    if (filters.priority) {
+      query.andWhere('workOrder.priority = :priority', {
+        priority: filters.priority,
+      });
+    }
+
+    // Search by title
+    const search = filters.search?.trim();
+
+    if (search) {
+      const escapedSearch = search.replace(/[\\%_]/g, '\\$&');
+
+      query.andWhere(
+        "workOrder.title ILIKE :search ESCAPE '\\'",
+        {
+          search: `%${escapedSearch}%`,
+        },
+      );
+    }
+
+    // Sort by creation date
+    query.orderBy(
+      'workOrder.createdAt',
+      filters.sort === WorkOrderSort.OLDEST ? 'ASC' : 'DESC',
+    );
+
+    // Stable ordering when timestamps are equal
+    query.addOrderBy('workOrder.id', 'ASC');
+
+    return query.getMany();
   }
-  
+
   async findOne(
     id: string,
     userId: string,
     role: UserRole,
   ): Promise<WorkOrder> {
     const repository = this.dataSource.getRepository(WorkOrder);
-  
+
     const where =
       role === UserRole.ADMIN
         ? { id }
@@ -119,15 +157,15 @@ export class WorkOrdersService {
             id,
             assignedTo: userId,
           };
-  
+
     const workOrder = await repository.findOne({
       where,
     });
-  
+
     if (!workOrder) {
       throw new NotFoundException('Work order not found');
     }
-  
+
     return workOrder;
   }
 
@@ -137,7 +175,7 @@ export class WorkOrdersService {
     role: UserRole,
   ): Promise<WorkOrderStatusHistory[]> {
     await this.findOne(id, userId, role);
-  
+
     return this.dataSource
       .getRepository(WorkOrderStatusHistory)
       .find({
@@ -159,39 +197,39 @@ export class WorkOrdersService {
   ): Promise<WorkOrder> {
     const workOrderRepository =
       this.dataSource.getRepository(WorkOrder);
-  
+
     const workOrder = await workOrderRepository.findOne({
       where: { id },
     });
-  
+
     if (!workOrder) {
       throw new NotFoundException('Work order not found');
     }
-  
+
     if (dto.title !== undefined) {
         const title = dto.title.trim();
-      
+
         if (!title) {
           throw new BadRequestException(
             'Title cannot be empty',
           );
         }
-      
+
         workOrder.title = title;
     }
-  
+
     if (dto.description !== undefined) {
       workOrder.description = dto.description.trim();
     }
-  
+
     if (dto.priority !== undefined) {
       workOrder.priority = dto.priority;
     }
-  
+
     if (dto.dueDate !== undefined) {
       workOrder.dueDate = new Date(dto.dueDate);
     }
-  
+
     return workOrderRepository.save(workOrder);
   }
 
@@ -205,27 +243,27 @@ export class WorkOrdersService {
       const historyRepository = manager.getRepository(
         WorkOrderStatusHistory,
       );
-  
+
       const workOrder = await workOrderRepository.findOne({
         where: { id },
       });
-  
+
       if (!workOrder) {
         throw new NotFoundException('Work order not found');
       }
-  
+
       if (workOrder.status !== WorkOrderStatus.NEW) {
         throw new BadRequestException(
           'Only NEW work orders can be assigned',
         );
       }
-  
+
       workOrder.assignedTo = operatorId;
       workOrder.status = WorkOrderStatus.ASSIGNED;
-  
+
       const savedWorkOrder =
         await workOrderRepository.save(workOrder);
-  
+
       const history = historyRepository.create({
         workOrderId: workOrder.id,
         fromStatus: WorkOrderStatus.NEW,
@@ -233,9 +271,9 @@ export class WorkOrdersService {
         changedBy,
         reason: 'Work order assigned',
       });
-  
+
       await historyRepository.save(history);
-  
+
       return savedWorkOrder;
     });
   }
@@ -248,49 +286,49 @@ export class WorkOrdersService {
     reason?: string,
   ): Promise<WorkOrder> {
     const definition = WORK_ORDER_TRANSITIONS[action];
-  
+
     if (!definition) {
       throw new BadRequestException(
         'Invalid work order action',
       );
     }
-  
+
     if (definition.role !== actorRole) {
       throw new ForbiddenException(
         'You do not have permission to perform this transition',
       );
     }
-  
+
     return this.dataSource.transaction(async (manager) => {
       const workOrderRepository =
         manager.getRepository(WorkOrder);
-  
+
       const historyRepository =
         manager.getRepository(WorkOrderStatusHistory);
-  
+
       const workOrder = await workOrderRepository.findOne({
         where: { id },
       });
-  
+
       if (!workOrder) {
         throw new NotFoundException('Work order not found');
       }
-  
+
       if (
         definition.requiresOwnership &&
         workOrder.assignedTo !== actorId
       ) {
         throw new NotFoundException('Work order not found');
       }
-  
+
       if (workOrder.status !== definition.from) {
         throw new BadRequestException(
           `Action ${action} is not allowed from status ${workOrder.status}`,
         );
       }
-  
+
       const normalizedReason = reason?.trim();
-  
+
       if (
         definition.requiresReason &&
         !normalizedReason
@@ -299,14 +337,14 @@ export class WorkOrdersService {
           'Reason is required for this transition',
         );
       }
-  
+
       const previousStatus = workOrder.status;
-  
+
       workOrder.status = definition.to;
-  
+
       const savedWorkOrder =
         await workOrderRepository.save(workOrder);
-  
+
       const history = historyRepository.create({
         workOrderId: workOrder.id,
         fromStatus: previousStatus,
@@ -316,10 +354,10 @@ export class WorkOrdersService {
           normalizedReason ??
           definition.historyReason,
       });
-  
+
       await historyRepository.save(history);
-  
+
       return savedWorkOrder;
     });
-  }  
+  }
 }

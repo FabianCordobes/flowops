@@ -1,40 +1,87 @@
+
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
+import { AppButton } from '../components/ui/AppButton';
+import { colors, radius, spacing, typography } from '../theme';
 import { useAuth } from '../providers/AuthProvider';
+
+type LoginErrors = {
+  email?: string;
+  password?: string;
+  general?: string;
+};
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const LoginScreen = () => {
   const { signIn, isLoading } = useAuth();
+  const { width } = useWindowDimensions();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errors, setErrors] = useState<LoginErrors>({});
+
+  const isBusy = isLoading || isSubmitting;
+  const isWideScreen = width >= 768;
+
+  const clearError = (field: keyof LoginErrors) => {
+    setErrors((current) => ({
+      ...current,
+      [field]: undefined,
+      general: undefined,
+    }));
+  };
 
   const handleSignIn = async () => {
-    if (!email.trim() || !password) {
-      setErrorMessage('Enter your email and password.');
+    if (isBusy) {
       return;
     }
 
-    setErrorMessage(null);
+    const normalizedEmail = email.trim().toLowerCase();
+    const nextErrors: LoginErrors = {};
+
+    if (!normalizedEmail) {
+      nextErrors.email = 'Email is required.';
+    } else if (!EMAIL_PATTERN.test(normalizedEmail)) {
+      nextErrors.email = 'Enter a valid email address.';
+    }
+
+    if (!password) {
+      nextErrors.password = 'Password is required.';
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrors({});
 
     try {
-      await signIn(email, password);
+      await signIn(normalizedEmail, password);
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'Unable to sign in.',
-      );
+      setErrors({
+        general:
+          error instanceof Error
+            ? error.message
+            : 'Unable to sign in. Please try again.',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -43,72 +90,184 @@ export const LoginScreen = () => {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.eyebrow}>FLOWOPS</Text>
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>
-            Sign in to manage your work orders.
-          </Text>
-        </View>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
+        <View
+          style={[
+            styles.layout,
+            isWideScreen && styles.layoutWide,
+          ]}
+        >
+          {/* BRAND */}
+          <View style={styles.brand}>
+            <View style={styles.brandMark}>
+              <Text style={styles.brandMarkText}>F</Text>
+            </View>
 
-        <View style={styles.form}>
-          <View style={styles.field}>
-            <Text style={styles.label}>Email</Text>
-
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="you@company.com"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              editable={!isLoading}
-            />
+            <View>
+              <Text style={styles.brandName}>FLOWOPS</Text>
+              <Text style={styles.brandCaption}>
+                OPERATIONS PLATFORM
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Password</Text>
+          {/* LOGIN CARD */}
+          <View style={styles.card}>
+            <View style={styles.header}>
+              <Text style={styles.eyebrow}>
+                ACCOUNT ACCESS
+              </Text>
 
-            <TextInput
-              style={styles.input}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Enter your password"
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!isLoading}
-              onSubmitEditing={() => {
-                void handleSignIn();
-              }}
-            />
+              <Text style={styles.title}>
+                Welcome back
+              </Text>
+
+              <Text style={styles.subtitle}>
+                Sign in to manage your work orders and
+                stay connected with your team.
+              </Text>
+            </View>
+
+            <View style={styles.form}>
+              {/* EMAIL */}
+              <View style={styles.field}>
+                <Text style={styles.label}>
+                  Email address
+                </Text>
+
+                <TextInput
+                  style={[
+                    styles.input,
+                    errors.email ? styles.inputError : null,
+                  ]}
+                  value={email}
+                  onChangeText={(value) => {
+                    setEmail(value);
+                    clearError('email');
+                  }}
+                  placeholder="you@company.com"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  keyboardType="email-address"
+                  textContentType="emailAddress"
+                  returnKeyType="next"
+                  editable={!isBusy}
+                  accessibilityLabel="Email address"
+                />
+
+                {errors.email ? (
+                  <Text style={styles.fieldError}>
+                    {errors.email}
+                  </Text>
+                ) : null}
+              </View>
+
+              {/* PASSWORD */}
+              <View style={styles.field}>
+                <Text style={styles.label}>
+                  Password
+                </Text>
+
+                <View
+                  style={[
+                    styles.passwordContainer,
+                    errors.password
+                      ? styles.inputError
+                      : null,
+                  ]}
+                >
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={password}
+                    onChangeText={(value) => {
+                      setPassword(value);
+                      clearError('password');
+                    }}
+                    placeholder="Enter your password"
+                    placeholderTextColor={colors.textMuted}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="password"
+                    textContentType="password"
+                    returnKeyType="go"
+                    editable={!isBusy}
+                    accessibilityLabel="Password"
+                    onSubmitEditing={() => {
+                      void handleSignIn();
+                    }}
+                  />
+
+                  <Pressable
+                    style={styles.passwordToggle}
+                    onPress={() =>
+                      setShowPassword((current) => !current)
+                    }
+                    disabled={isBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      showPassword
+                        ? 'Hide password'
+                        : 'Show password'
+                    }
+                  >
+                    <Text style={styles.passwordToggleText}>
+                      {showPassword ? 'Hide' : 'Show'}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {errors.password ? (
+                  <Text style={styles.fieldError}>
+                    {errors.password}
+                  </Text>
+                ) : null}
+              </View>
+
+              {/* AUTH ERROR */}
+              {errors.general ? (
+                <View
+                  style={styles.errorBox}
+                  accessibilityRole="alert"
+                >
+                  <Text style={styles.errorText}>
+                    {errors.general}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* SUBMIT */}
+              <AppButton
+                label="Sign in"
+                variant="primary"
+                size="lg"
+                loading={isBusy}
+                disabled={isBusy}
+                onPress={() => {
+                  void handleSignIn();
+                }}
+              />
+            </View>
           </View>
 
-          {errorMessage ? (
-            <Text style={styles.error}>{errorMessage}</Text>
-          ) : null}
+          {/* FOOTER */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              FlowOps · Work order management
+            </Text>
 
-          <Pressable
-            style={({ pressed }) => [
-              styles.button,
-              pressed && styles.buttonPressed,
-              isLoading && styles.buttonDisabled,
-            ]}
-            disabled={isLoading}
-            onPress={() => {
-              void handleSignIn();
-            }}
-          >
-            {isLoading ? (
-              <ActivityIndicator />
-            ) : (
-              <Text style={styles.buttonText}>Sign in</Text>
-            )}
-          </Pressable>
+            <Text style={styles.footerCaption}>
+              Secure access for your operations team
+            </Text>
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 };
@@ -116,72 +275,190 @@ export const LoginScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F7F8',
+    backgroundColor: colors.background,
   },
-  content: {
-    flex: 1,
+
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: spacing.screen,
+    paddingVertical: spacing.section,
   },
-  header: {
-    marginBottom: 40,
+
+  layout: {
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
   },
-  eyebrow: {
-    marginBottom: 12,
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 2,
+
+  layoutWide: {
+    maxWidth: 520,
   },
-  title: {
-    fontSize: 36,
-    fontWeight: '700',
-    letterSpacing: -1,
+
+  brand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.xxxl,
   },
-  subtitle: {
-    marginTop: 10,
-    fontSize: 16,
-    lineHeight: 24,
-    opacity: 0.6,
-  },
-  form: {
-    gap: 20,
-  },
-  field: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  input: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: '#D9D9DE',
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    fontSize: 16,
-  },
-  error: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  button: {
-    minHeight: 54,
+
+  brandMark: {
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: '#111111',
+    borderRadius: radius.lg,
+    backgroundColor: colors.primary,
   },
-  buttonPressed: {
-    opacity: 0.85,
+
+  brandMarkText: {
+    color: colors.surface,
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold,
   },
-  buttonDisabled: {
-    opacity: 0.6,
+
+  brandName: {
+    color: colors.text,
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 2,
   },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+
+  brandCaption: {
+    marginTop: spacing.xs,
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    letterSpacing: 1,
+  },
+
+  card: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+    padding: spacing.xl,
+  },
+
+  header: {
+    marginBottom: spacing.xxxl,
+  },
+
+  eyebrow: {
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 1.5,
+    marginBottom: spacing.md,
+  },
+
+  title: {
+    color: colors.text,
+    fontSize: typography.fontSize.heading,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: -1,
+  },
+
+  subtitle: {
+    marginTop: spacing.md,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.md,
+    lineHeight: 24,
+  },
+
+  form: {
+    gap: spacing.xl,
+  },
+
+  field: {
+    gap: spacing.sm,
+  },
+
+  label: {
+    color: colors.text,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
+
+  input: {
+    minHeight: 54,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    paddingHorizontal: spacing.md,
+    fontSize: typography.fontSize.md,
+  },
+
+  inputError: {
+    borderColor: '#DC2626',
+  },
+
+  passwordContainer: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+  },
+
+  passwordInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: spacing.md,
+    fontSize: typography.fontSize.md,
+    color: colors.text,
+  },
+
+  passwordToggle: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+
+  passwordToggleText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
+
+  fieldError: {
+    color: '#B91C1C',
+    fontSize: typography.fontSize.xs,
+    lineHeight: 18,
+  },
+
+  errorBox: {
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: radius.lg,
+    backgroundColor: '#FEF2F2',
+    padding: spacing.md,
+  },
+
+  errorText: {
+    color: '#991B1B',
+    fontSize: typography.fontSize.sm,
+    lineHeight: 20,
+  },
+
+  footer: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xxxl,
+  },
+
+  footerText: {
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
+  },
+
+  footerCaption: {
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
   },
 });
