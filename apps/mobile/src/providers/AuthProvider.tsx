@@ -19,6 +19,7 @@ type AuthContextValue = {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  updateProfile: (profile: Profile) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -27,6 +28,10 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const updateProfile = useCallback((updatedProfile: Profile) => {
+    setProfile(updatedProfile);
+  }, []);
 
   const loadProfile = useCallback(async (currentSession: Session) => {
     setSession(currentSession);
@@ -151,8 +156,9 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       isLoading,
       signIn,
       signOut,
+      updateProfile,
     }),
-    [session, profile, isLoading, signIn, signOut],
+    [session, profile, isLoading, signIn, signOut, updateProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

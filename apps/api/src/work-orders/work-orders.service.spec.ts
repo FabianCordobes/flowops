@@ -9,6 +9,8 @@ import {
   import { WorkOrdersService } from './work-orders.service.js';
 import { WorkOrderStatusHistory } from './entities/work-order-status-history.entity.js';
 import { WorkOrderSort } from './dto/list-work-orders-query.dto.js';
+import { WorkOrderComment } from './entities/work-order-comment.entity.js';
+import { NotFoundException } from '@nestjs/common';
 
   describe('WorkOrdersService', () => {
     let service: WorkOrdersService;
@@ -34,6 +36,13 @@ import { WorkOrderSort } from './dto/list-work-orders-query.dto.js';
       find: vi.fn(),
     };
 
+    const commentRepository = {
+      create: vi.fn(),
+      save: vi.fn(),
+      find: vi.fn(),
+      findOneOrFail: vi.fn(),
+    };
+
     const manager = {
       getRepository: vi.fn(),
     };
@@ -45,6 +54,7 @@ import { WorkOrderSort } from './dto/list-work-orders-query.dto.js';
 
     beforeEach(() => {
         Object.values(queryBuilder).forEach((mock) => mock.mockReset());
+        Object.values(commentRepository).forEach((mock) => mock.mockReset());
 
         queryBuilder.andWhere.mockReturnValue(queryBuilder);
         queryBuilder.orderBy.mockReturnValue(queryBuilder);
@@ -70,15 +80,17 @@ import { WorkOrderSort } from './dto/list-work-orders-query.dto.js';
           .mockReturnValueOnce(workOrderRepository)
           .mockReturnValueOnce(historyRepository);
 
-          dataSource.getRepository.mockImplementation(
-            (entity) => {
-              if (entity === WorkOrderStatusHistory) {
-                return historyRepository;
-              }
+          dataSource.getRepository.mockImplementation((entity) => {
+            if (entity === WorkOrderStatusHistory) {
+              return historyRepository;
+            }
 
-              return workOrderRepository;
-            },
-          );
+            if (entity === WorkOrderComment) {
+              return commentRepository;
+            }
+
+            return workOrderRepository;
+          });
 
         dataSource.transaction.mockImplementation(
           async (callback) => callback(manager),
@@ -1126,5 +1138,248 @@ it('should require a reason when requesting changes', async () => {
     ).rejects.toThrow('Title cannot be empty');
 
     expect(workOrderRepository.save).not.toHaveBeenCalled();
+  });
+
+  describe('findComments', () => {
+    const workOrderId = 'work-order-id';
+    const adminId = 'admin-user-id';
+
+    it('should return comments ordered chronologically for an ADMIN', async () => {
+      const comments = [
+        {
+          id: 'comment-1',
+          workOrderId,
+          content: 'First comment',
+        },
+        {
+          id: 'comment-2',
+          workOrderId,
+          content: 'Second comment',
+        },
+      ];
+
+      workOrderRepository.findOne.mockResolvedValue({
+        id: workOrderId,
+        assignedTo: null,
+      });
+
+      commentRepository.find.mockResolvedValue(comments);
+
+      const result = await service.findComments(
+        workOrderId,
+        adminId,
+        UserRole.ADMIN,
+      );
+
+      expect(result).toEqual(comments);
+
+      expect(commentRepository.find).toHaveBeenCalledWith({
+        where: { workOrderId },
+        relations: { author: true },
+        order: {
+          createdAt: 'ASC',
+          id: 'ASC',
+        },
+      });
+    });
+
+    it('should allow an assigned OPERATOR to read comments', async () => {
+      const operatorId = 'operator-user-id';
+
+      workOrderRepository.findOne.mockResolvedValue({
+        id: workOrderId,
+        assignedTo: operatorId,
+      });
+
+      commentRepository.find.mockResolvedValue([]);
+
+      await expect(
+        service.findComments(
+          workOrderId,
+          operatorId,
+          UserRole.OPERATOR,
+        ),
+      ).resolves.toEqual([]);
+
+      expect(commentRepository.find).toHaveBeenCalledOnce();
+    });
+
+    it('should deny an unassigned OPERATOR', async () => {
+      const operatorId = 'operator-user-id';
+
+      workOrderRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findComments(
+          workOrderId,
+          operatorId,
+          UserRole.OPERATOR,
+        ),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(commentRepository.find).not.toHaveBeenCalled();
+
+      expect(workOrderRepository.findOne).toHaveBeenCalledWith({
+        where: {
+          id: workOrderId,
+          assignedTo: operatorId,
+        },
+      });
+    });
+    it('should reject comments lookup for a nonexistent work order', async () => {
+      workOrderRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findComments(
+          workOrderId,
+          adminId,
+          UserRole.ADMIN,
+        ),
+      ).rejects.toThrow();
+
+      expect(commentRepository.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createComment', () => {
+    const workOrderId = 'work-order-id';
+    const adminId = 'admin-user-id';
+
+    it('should create a comment and return it with author information', async () => {
+      workOrderRepository.findOne.mockResolvedValue({
+        id: workOrderId,
+        assignedTo: null,
+      });
+
+      const createdComment = {
+        workOrderId,
+        authorId: adminId,
+        content: 'Inspection completed',
+      };
+
+      const savedComment = {
+        id: 'comment-id',
+        ...createdComment,
+      };
+
+      const commentWithAuthor = {
+        ...savedComment,
+        author: {
+          id: adminId,
+          fullName: 'Admin User',
+        },
+      };
+
+      commentRepository.create.mockReturnValue(createdComment);
+      commentRepository.save.mockResolvedValue(savedComment);
+      commentRepository.findOneOrFail.mockResolvedValue(commentWithAuthor);
+
+      const result = await service.createComment(
+        workOrderId,
+        adminId,
+        UserRole.ADMIN,
+        '  Inspection completed  ',
+      );
+
+      expect(commentRepository.create).toHaveBeenCalledWith({
+        workOrderId,
+        authorId: adminId,
+        content: 'Inspection completed',
+      });
+
+      expect(commentRepository.save).toHaveBeenCalledWith(createdComment);
+
+      expect(commentRepository.findOneOrFail).toHaveBeenCalledWith({
+        where: { id: 'comment-id' },
+        relations: { author: true },
+      });
+
+      expect(result).toEqual(commentWithAuthor);
+    });
+
+    it('should allow an assigned OPERATOR to create a comment', async () => {
+      const operatorId = 'operator-user-id';
+
+      workOrderRepository.findOne.mockResolvedValue({
+        id: workOrderId,
+        assignedTo: operatorId,
+      });
+
+      commentRepository.create.mockImplementation((value) => value);
+      commentRepository.save.mockResolvedValue({ id: 'comment-id' });
+      commentRepository.findOneOrFail.mockResolvedValue({
+        id: 'comment-id',
+        authorId: operatorId,
+        content: 'Work started',
+      });
+
+      await service.createComment(
+        workOrderId,
+        operatorId,
+        UserRole.OPERATOR,
+        'Work started',
+      );
+
+      expect(commentRepository.save).toHaveBeenCalledOnce();
+    });
+
+    it('should reject an empty comment', async () => {
+      workOrderRepository.findOne.mockResolvedValue({
+        id: workOrderId,
+      });
+
+      await expect(
+        service.createComment(
+          workOrderId,
+          adminId,
+          UserRole.ADMIN,
+          '   ',
+        ),
+      ).rejects.toThrow('Comment must contain between 1 and 1000 characters');
+
+      expect(commentRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('should reject comments longer than 1000 characters', async () => {
+      workOrderRepository.findOne.mockResolvedValue({
+        id: workOrderId,
+      });
+
+      await expect(
+        service.createComment(
+          workOrderId,
+          adminId,
+          UserRole.ADMIN,
+          'a'.repeat(1001),
+        ),
+      ).rejects.toThrow('Comment must contain between 1 and 1000 characters');
+
+      expect(commentRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('should deny comment creation by an unassigned OPERATOR', async () => {
+      const operatorId = 'operator-user-id';
+
+      workOrderRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.createComment(
+          workOrderId,
+          operatorId,
+          UserRole.OPERATOR,
+          'Unauthorized comment',
+        ),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(commentRepository.create).not.toHaveBeenCalled();
+      expect(commentRepository.save).not.toHaveBeenCalled();
+
+      expect(workOrderRepository.findOne).toHaveBeenCalledWith({
+        where: {
+          id: workOrderId,
+          assignedTo: operatorId,
+        },
+      });
+    });
   });
   });

@@ -1,8 +1,10 @@
 import { apiRequest } from '../lib/api';
 import type {
-    CreateWorkOrderInput,
+  CreateWorkOrderCommentInput,
+  CreateWorkOrderInput,
   WorkOrder,
   WorkOrderAction,
+  WorkOrderComment,
   WorkOrderFilters,
   WorkOrderStatusHistory,
 } from '../types/work-order';
@@ -81,5 +83,26 @@ export const createWorkOrder = (
   ): Promise<WorkOrderStatusHistory[]> => {
     return apiRequest<WorkOrderStatusHistory[]>(
       `/work-orders/${id}/history`,
+    );
+  };
+
+  export const getWorkOrderComments = (
+    id: string,
+  ): Promise<WorkOrderComment[]> => {
+    return apiRequest<WorkOrderComment[]>(
+      `/work-orders/${id}/comments`,
+    );
+  };
+
+  export const createWorkOrderComment = (
+    id: string,
+    input: CreateWorkOrderCommentInput,
+  ): Promise<WorkOrderComment> => {
+    return apiRequest<WorkOrderComment>(
+      `/work-orders/${id}/comments`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
     );
   };

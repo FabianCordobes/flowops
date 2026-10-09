@@ -37,6 +37,7 @@ import {
   getAvailableWorkOrderActions,
   type AvailableWorkOrderAction,
 } from '../utils/work-order-actions';
+import { WorkOrderComments } from '../components/work-orders/WorkOrderComments';
 
 type Props = NativeStackScreenProps<
   RootStackParamList,
@@ -649,6 +650,9 @@ export const WorkOrderDetailScreen = ({
           </View>
         )}
       </View>
+
+      {/* COMMENTS */}
+      <WorkOrderComments workOrderId={workOrder.id} />
 
       <Text style={styles.identifier}>
         ID {workOrder.id}

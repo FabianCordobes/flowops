@@ -9,24 +9,74 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
 import { ScreenHeader } from '../components/ui/ScreenHeader';
 import { useAuth } from '../providers/AuthProvider';
 import { colors, radius, spacing, typography } from '../theme';
+import { updateMyProfile } from '../services/profile.service';
 
 export const AccountScreen = () => {
-  const { profile, session, signOut } = useAuth();
+  const { profile, session, signOut, updateProfile } = useAuth();
 
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showSignOutModal, setShowSignOutModal] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+const [fullName, setFullName] = useState('');
+const [isSavingProfile, setIsSavingProfile] = useState(false);
+const [profileError, setProfileError] = useState<string | null>(null);
+
+const normalizedName = fullName.trim();
+
+const canSaveProfile =
+  normalizedName.length >= 2 &&
+  normalizedName.length <= 100 &&
+  !isSavingProfile;
+
+const handleStartEditing = () => {
+  setFullName(profile?.fullName ?? '');
+  setProfileError(null);
+  setIsEditingProfile(true);
+};
+
+const handleCancelEditing = () => {
+  if (isSavingProfile) return;
+
+  setIsEditingProfile(false);
+  setProfileError(null);
+};
+
+const handleSaveProfile = async () => {
+  if (!canSaveProfile) return;
+
+  setIsSavingProfile(true);
+  setProfileError(null);
+
+  try {
+    const updatedProfile = await updateMyProfile(normalizedName);
+
+    updateProfile(updatedProfile);
+    setIsEditingProfile(false);
+  } catch (error) {
+    setProfileError(
+      error instanceof Error
+        ? error.message
+        : 'Unable to update your profile.',
+    );
+  } finally {
+    setIsSavingProfile(false);
+  }
+};
 
   const email = profile?.email ?? session?.user.email ?? '';
   const role = profile?.role ?? 'UNKNOWN';
 
-  const initial = email.charAt(0).toUpperCase() || 'U';
+  const initial = (profile?.fullName || email)
+  .charAt(0)
+  .toUpperCase() || 'U';
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
@@ -72,9 +122,15 @@ export const AccountScreen = () => {
         </View>
 
         <View style={styles.profileDetails}>
-          <Text style={styles.profileEmail} numberOfLines={2}>
-            {email}
-          </Text>
+        {profile?.fullName ? (
+  <Text style={styles.profileName} numberOfLines={2}>
+    {profile.fullName}
+  </Text>
+) : null}
+
+<Text style={styles.profileEmail} numberOfLines={2}>
+  {email}
+</Text>
 
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>{role}</Text>
@@ -88,6 +144,25 @@ export const AccountScreen = () => {
         </Text>
 
         <View style={styles.infoCard}>
+            <View style={styles.infoRow}>
+                <View style={styles.infoIcon}>
+                    <Ionicons
+                    name="person-outline"
+                    size={19}
+                    color={colors.textSecondary}
+                    />
+                </View>
+
+                <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Full name</Text>
+                    <Text style={styles.infoValue}>
+                    {profile?.fullName || 'Not configured'}
+                    </Text>
+                </View>
+            </View>
+
+            <View style={styles.divider} />
+
           <View style={styles.infoRow}>
             <View style={styles.infoIcon}>
               <Ionicons
@@ -122,6 +197,75 @@ export const AccountScreen = () => {
             </View>
           </View>
         </View>
+        {!isEditingProfile ? (
+  <Pressable
+    accessibilityRole="button"
+    onPress={handleStartEditing}
+    style={styles.editButton}
+  >
+    <Ionicons
+      name="create-outline"
+      size={18}
+      color={colors.primary}
+    />
+    <Text style={styles.editButtonText}>Edit profile</Text>
+  </Pressable>
+) : (
+  <View style={styles.editCard}>
+    <Text style={styles.infoLabel}>Full name</Text>
+
+    <TextInput
+      style={styles.nameInput}
+      value={fullName}
+      onChangeText={(value) => {
+        setFullName(value);
+        setProfileError(null);
+      }}
+      placeholder="Enter your full name"
+      placeholderTextColor={colors.textMuted}
+      maxLength={100}
+      autoCapitalize="words"
+      autoCorrect={false}
+      editable={!isSavingProfile}
+      accessibilityLabel="Full name"
+    />
+
+    <Text style={styles.characterCount}>
+      {fullName.length}/100
+    </Text>
+
+    {profileError ? (
+      <Text style={styles.errorText}>{profileError}</Text>
+    ) : null}
+
+    <View style={styles.editActions}>
+      <Pressable
+        accessibilityRole="button"
+        disabled={isSavingProfile}
+        onPress={handleCancelEditing}
+        style={styles.cancelEditButton}
+      >
+        <Text style={styles.cancelEditText}>Cancel</Text>
+      </Pressable>
+
+      <Pressable
+        accessibilityRole="button"
+        disabled={!canSaveProfile}
+        onPress={() => void handleSaveProfile()}
+        style={[
+          styles.saveButton,
+          !canSaveProfile && styles.signOutDisabled,
+        ]}
+      >
+        {isSavingProfile ? (
+          <ActivityIndicator color={colors.textInverse} />
+        ) : (
+          <Text style={styles.saveButtonText}>Save changes</Text>
+        )}
+      </Pressable>
+    </View>
+  </View>
+)}
       </View>
 
       <View style={styles.section}>
@@ -511,6 +655,78 @@ const styles = StyleSheet.create({
   },
 
   confirmButtonText: {
+    color: colors.textInverse,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  profileName: {
+    color: colors.text,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+  },
+  editButton: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  editButtonText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  editCard: {
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: spacing.md,
+  },
+  nameInput: {
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    color: colors.text,
+    fontSize: typography.fontSize.md,
+  },
+  characterCount: {
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+    textAlign: 'right',
+  },
+  editActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  cancelEditButton: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cancelEditText: {
+    color: colors.text,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  saveButton: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.lg,
+    backgroundColor: colors.text,
+  },
+  saveButtonText: {
     color: colors.textInverse,
     fontWeight: typography.fontWeight.semibold,
   },
