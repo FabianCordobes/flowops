@@ -1,6 +1,8 @@
+
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useState } from 'react';
+
 import {
   ActivityIndicator,
   Pressable,
@@ -10,9 +12,22 @@ import {
   View,
 } from 'react-native';
 
+import { WorkOrderCard } from '../components/work-orders/WorkOrderCard';
+import { AppButton } from '../components/ui/AppButton';
+import { EmptyState } from '../components/ui/EmptyState';
+import { ScreenHeader } from '../components/ui/ScreenHeader';
+
 import type { RootStackParamList } from '../navigation/types';
 import { useAuth } from '../providers/AuthProvider';
 import { getWorkOrders } from '../services/work-orders.service';
+
+import {
+  colors,
+  radius,
+  spacing,
+  typography,
+} from '../theme';
+
 import type { WorkOrder } from '../types/work-order';
 
 type Props = NativeStackScreenProps<
@@ -26,6 +41,8 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const isAdmin = profile?.role === 'ADMIN';
 
   const loadWorkOrders = useCallback(async () => {
     setIsLoading(true);
@@ -59,141 +76,135 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
     }
   };
 
+  const handleCreateWorkOrder = () => {
+    navigation.navigate('CreateWorkOrder');
+  };
+
+  const handleOpenWorkOrder = (workOrderID: string) => {
+    navigation.navigate('WorkOrderDetail', {
+      workOrderId: workOrderID,
+    });
+  };
+
+  const hasWorkOrders = workOrders.length > 0;
+
   return (
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
     >
+      {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>FLOWOPS</Text>
+        <ScreenHeader
+          eyebrow="FlowOps workspace"
+          title="Work orders"
+          subtitle="Manage and track your team's operations."
+        />
 
-          <Text style={styles.title}>Work orders</Text>
-
-          <Text style={styles.subtitle}>
+        <View style={styles.accountRow}>
+          <Text
+            style={styles.accountEmail}
+            numberOfLines={1}
+          >
             {profile?.email}
           </Text>
-        </View>
 
-        <View style={styles.roleBadge}>
-          <Text style={styles.roleText}>
-            {profile?.role}
-          </Text>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleText}>
+              {profile?.role}
+            </Text>
+          </View>
         </View>
       </View>
 
-      {profile?.role === 'ADMIN' ? (
-        <Pressable
-          style={styles.createButton}
-          onPress={() => {
-            navigation.navigate('CreateWorkOrder');
-          }}
-        >
-          <Text style={styles.createButtonText}>
-            + New work order
-          </Text>
-        </Pressable>
+      {/* Create work order - ADMIN only */}
+      {isAdmin ? (
+        <View style={styles.createAction}>
+          <AppButton
+            label="+ New work order"
+            onPress={handleCreateWorkOrder}
+          />
+        </View>
       ) : null}
 
-
+      {/* Loading state */}
       {isLoading ? (
-        <View style={styles.stateContainer}>
-          <ActivityIndicator size="large" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator
+            size="large"
+            color={colors.primary}
+          />
 
-          <Text style={styles.stateText}>
+          <Text style={styles.loadingText}>
             Loading work orders...
           </Text>
         </View>
       ) : null}
 
+      {/* Error state */}
       {!isLoading && errorMessage ? (
-        <View style={styles.stateContainer}>
-          <Text style={styles.errorTitle}>
-            Unable to load work orders
-          </Text>
-
-          <Text style={styles.stateText}>
-            {errorMessage}
-          </Text>
-
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={() => {
-              void loadWorkOrders();
-            }}
-          >
-            <Text style={styles.secondaryButtonText}>
-              Try again
-            </Text>
-          </Pressable>
-        </View>
+        <EmptyState
+          variant="error"
+          title="Unable to load work orders"
+          description={errorMessage}
+          actionLabel="Try again"
+          onAction={() => {
+            void loadWorkOrders();
+          }}
+        />
       ) : null}
 
-      {!isLoading &&
-      !errorMessage &&
-      workOrders.length === 0 ? (
-        <View style={styles.stateContainer}>
-          <Text style={styles.emptyTitle}>
-            No work orders yet
-          </Text>
-
-          <Text style={styles.stateText}>
-            {profile?.role === 'ADMIN'
+      {/* Empty state */}
+      {!isLoading && !errorMessage && !hasWorkOrders ? (
+        <EmptyState
+          variant="empty"
+          title="No work orders yet"
+          description={
+            isAdmin
               ? 'Create the first work order to start the workflow.'
-              : 'There are no work orders assigned to you.'}
-          </Text>
+              : 'There are no work orders assigned to you.'
+          }
+          actionLabel={isAdmin ? 'Create work order' : undefined}
+          onAction={isAdmin ? handleCreateWorkOrder : undefined}
+        />
+      ) : null}
+
+      {/* Work orders list */}
+      {!isLoading && !errorMessage && hasWorkOrders ? (
+        <View style={styles.listSection}>
+          <View style={styles.listHeader}>
+            <Text style={styles.listTitle}>
+              All work orders
+            </Text>
+
+            <Text style={styles.listCount}>
+              {workOrders.length}{' '}
+              {workOrders.length === 1 ? 'order' : 'orders'}
+            </Text>
+          </View>
+
+          <View style={styles.list}>
+            {workOrders.map((workOrder) => (
+              <WorkOrderCard
+                key={workOrder.id}
+                workOrder={workOrder}
+                onPress={() => {
+                  handleOpenWorkOrder(workOrder.id);
+                }}
+              />
+            ))}
+          </View>
         </View>
       ) : null}
 
-      {!isLoading && !errorMessage ? (
-        <View style={styles.list}>
-          {workOrders.map((workOrder) => (
-            <Pressable
-              key={workOrder.id}
-              style={({ pressed }) => [
-                styles.card,
-                pressed && styles.cardPressed,
-              ]}
-              onPress={() => {
-                navigation.navigate('WorkOrderDetail', {
-                  workOrderId: workOrder.id,
-                });
-              }}
-            >
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>
-                  {workOrder.title}
-                </Text>
-
-                <Text style={styles.priority}>
-                  {workOrder.priority}
-                </Text>
-              </View>
-
-              {workOrder.description ? (
-                <Text style={styles.description}>
-                  {workOrder.description}
-                </Text>
-              ) : null}
-
-              <View style={styles.cardFooter}>
-                <Text style={styles.status}>
-                  {formatStatus(workOrder.status)}
-                </Text>
-
-                {workOrder.dueDate ? (
-                  <Text style={styles.dueDate}>
-                    Due {formatDate(workOrder.dueDate)}
-                  </Text>
-                ) : null}
-              </View>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-
+      {/* Sign out */}
       <Pressable
-        style={styles.signOutButton}
+        accessibilityRole="button"
+        accessibilityLabel="Sign out"
+        style={({ pressed }) => [
+          styles.signOutButton,
+          pressed && styles.signOutPressed,
+        ]}
         onPress={() => {
           void handleSignOut();
         }}
@@ -206,173 +217,113 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
   );
 };
 
-const formatStatus = (status: WorkOrder['status']) => {
-  return status
-    .toLowerCase()
-    .split('_')
-    .map(
-      (word) =>
-        word.charAt(0).toUpperCase() + word.slice(1),
-    )
-    .join(' ');
-};
-
-const formatDate = (date: string) => {
-  return new Intl.DateTimeFormat('en', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(date));
-};
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F7F8',
+    backgroundColor: colors.background,
   },
+
   content: {
-    padding: 24,
-    paddingBottom: 48,
+    paddingHorizontal: spacing.screen,
+    paddingTop: spacing.xxxl,
+    paddingBottom: spacing.section,
   },
+
   header: {
+    marginBottom: spacing.xxl,
+    gap: spacing.lg,
+  },
+
+  accountRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 16,
-    marginTop: 16,
-    marginBottom: 32,
+    gap: spacing.md,
   },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 2,
+
+  accountEmail: {
+    flex: 1,
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
   },
-  title: {
-    marginTop: 12,
-    fontSize: 34,
-    fontWeight: '700',
-    letterSpacing: -1,
-  },
-  subtitle: {
-    marginTop: 6,
-    fontSize: 14,
-    opacity: 0.55,
-  },
+
   roleBadge: {
-    borderRadius: 999,
-    backgroundColor: '#111111',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: radius.full,
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
+
   roleText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
+    color: colors.primary,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold,
+    letterSpacing: typography.letterSpacing.wide,
   },
-  createButton: {
-    minHeight: 52,
-    marginBottom: 24,
+
+  createAction: {
+    marginBottom: spacing.xxl,
+  },
+
+  loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: '#111111',
+    minHeight: 220,
+    paddingVertical: spacing.section,
+    gap: spacing.md,
   },
-  createButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  stateContainer: {
-    alignItems: 'center',
-    paddingVertical: 64,
-    paddingHorizontal: 24,
-  },
-  stateText: {
-    marginTop: 12,
+
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.sm,
+    lineHeight: typography.lineHeight.sm,
     textAlign: 'center',
-    fontSize: 15,
-    lineHeight: 22,
-    opacity: 0.6,
   },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+
+  listSection: {
+    gap: spacing.lg,
   },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  secondaryButton: {
-    marginTop: 20,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-  },
-  secondaryButtonText: {
-    fontWeight: '600',
-  },
-  list: {
-    gap: 14,
-  },
-  card: {
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    padding: 18,
-  },
-  cardPressed: {
-    opacity: 0.75,
-  },
-  cardHeader: {
+
+  listHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  cardTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  priority: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    opacity: 0.55,
-  },
-  description: {
-    marginTop: 10,
-    fontSize: 14,
-    lineHeight: 21,
-    opacity: 0.65,
-  },
-  cardFooter: {
-    marginTop: 18,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    gap: spacing.md,
   },
-  status: {
-    fontSize: 13,
-    fontWeight: '700',
+
+  listTitle: {
+    flex: 1,
+    color: colors.text,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
   },
-  dueDate: {
-    fontSize: 12,
-    opacity: 0.5,
+
+  listCount: {
+    color: colors.textMuted,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
   },
+
+  list: {
+    gap: spacing.lg,
+  },
+
   signOutButton: {
-    marginTop: 32,
+    marginTop: spacing.section,
     minHeight: 50,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: '#111111',
+    borderRadius: radius.lg,
+    backgroundColor: colors.text,
   },
+
+  signOutPressed: {
+    opacity: 0.8,
+  },
+
   signOutText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
+    color: colors.textInverse,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
   },
 });
