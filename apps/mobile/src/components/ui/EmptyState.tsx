@@ -6,18 +6,18 @@ import {
     type StyleProp,
     type ViewStyle,
   } from 'react-native';
-  
+
   import {
     colors,
     radius,
     spacing,
     typography,
   } from '../../theme';
-  
+
   import { AppButton } from './AppButton';
-  
+
   type EmptyStateVariant = 'empty' | 'error' | 'search';
-  
+
   interface EmptyStateProps {
     variant?: EmptyStateVariant;
     title: string;
@@ -26,10 +26,10 @@ import {
     onAction?: () => void;
     style?: StyleProp<ViewStyle>;
   }
-  
+
   const variantConfig = {
     empty: {
-      symbol: '＋',
+      symbol: '+',
       color: colors.primary,
       background: colors.primarySoft,
     },
@@ -39,12 +39,12 @@ import {
       background: colors.dangerSoft,
     },
     search: {
-      symbol: '⌕',
+      symbol: '?',
       color: colors.info,
       background: colors.infoSoft,
     },
   } as const;
-  
+
   export const EmptyState = ({
     variant = 'empty',
     title,
@@ -54,15 +54,13 @@ import {
     style,
   }: EmptyStateProps) => {
     const config = variantConfig[variant];
-    const showAction = Boolean(actionLabel && onAction);
-  
+
     return (
-      <View
-        style={[styles.container, style]}
-        accessibilityRole="summary"
-      >
+      <View style={[styles.container, style]}>
+        {/* Decorative icon */}
         <View
           accessible={false}
+          importantForAccessibility="no-hide-descendants"
           style={[
             styles.iconContainer,
             { backgroundColor: config.background },
@@ -77,22 +75,27 @@ import {
             {config.symbol}
           </Text>
         </View>
-  
+
+        {/* State information */}
         <View style={styles.textContainer}>
-          <Text style={styles.title}>
+          <Text
+            accessibilityRole="header"
+            style={styles.title}
+          >
             {title}
           </Text>
-  
+
           <Text style={styles.description}>
             {description}
           </Text>
         </View>
-  
-        {showAction ? (
+
+        {/* Optional action */}
+        {actionLabel && onAction ? (
           <View style={styles.actionContainer}>
             <AppButton
-              label={actionLabel!}
-              onPress={onAction!}
+              label={actionLabel}
+              onPress={onAction}
               variant={variant === 'error' ? 'outline' : 'primary'}
               fullWidth={false}
             />
@@ -101,34 +104,43 @@ import {
       </View>
     );
   };
-  
+
   const styles = StyleSheet.create({
     container: {
+      width: '100%',
+      minHeight: 240,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: spacing.xxl,
-      paddingVertical: spacing.section,
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.xxxl,
       borderRadius: radius.xl,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
     },
+
     iconContainer: {
-      width: 64,
-      height: 64,
+      width: 60,
+      height: 60,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: radius.xl,
-      marginBottom: spacing.xl,
+      borderRadius: radius.full,
+      marginBottom: spacing.lg,
     },
+
     icon: {
-      fontSize: 30,
+      fontSize: typography.fontSize.heading,
+      lineHeight: typography.lineHeight.heading,
       fontWeight: typography.fontWeight.semibold,
+      textAlign: 'center',
     },
+
     textContainer: {
+      width: '100%',
       alignItems: 'center',
       gap: spacing.sm,
     },
+
     title: {
       color: colors.text,
       fontSize: typography.fontSize.xl,
@@ -136,15 +148,17 @@ import {
       fontWeight: typography.fontWeight.bold,
       textAlign: 'center',
     },
+
     description: {
       color: colors.textSecondary,
       fontSize: typography.fontSize.sm,
       lineHeight: typography.lineHeight.sm,
       textAlign: 'center',
     },
+
     actionContainer: {
-      marginTop: spacing.xxl,
+      width: '100%',
+      marginTop: spacing.xl,
       alignItems: 'center',
     },
   });
-  

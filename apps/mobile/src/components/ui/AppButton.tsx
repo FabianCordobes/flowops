@@ -116,33 +116,38 @@ export const AppButton = ({
         style,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator
-          size="small"
-          color={variantConfig.indicatorColor}
-        />
-      ) : (
-        <View style={styles.content}>
-          {leftIcon ? (
-            <View style={styles.icon}>
-              {leftIcon}
-            </View>
-          ) : null}
-
-          <Text
-            style={[
-              styles.label,
-              {
-                color: variantConfig.textColor,
-                fontSize: sizeConfig.fontSize,
-              },
-            ]}
-            numberOfLines={2}
+      <View style={styles.content}>
+        {loading ? (
+          <ActivityIndicator
+            size="small"
+            color={variantConfig.indicatorColor}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+        ) : leftIcon ? (
+          <View
+            style={styles.icon}
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
           >
-            {label}
-          </Text>
-        </View>
-      )}
+            {leftIcon}
+          </View>
+        ) : null}
+
+        <Text
+          style={[
+            styles.label,
+            {
+              color: variantConfig.textColor,
+              fontSize: sizeConfig.fontSize,
+            },
+          ]}
+          numberOfLines={2}
+          accessible={false}
+        >
+          {label}
+        </Text>
+      </View>
     </Pressable>
   );
 };
@@ -155,29 +160,40 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: spacing.sm,
   },
+
   fullWidth: {
     alignSelf: 'stretch',
   },
+
   autoWidth: {
     alignSelf: 'flex-start',
+    maxWidth: '100%',
   },
+
   content: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
+    maxWidth: '100%',
   },
+
   icon: {
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
+
   label: {
+    flexShrink: 1,
     fontWeight: typography.fontWeight.semibold,
     textAlign: 'center',
   },
+
   pressed: {
     opacity: 0.85,
   },
+
   disabled: {
     opacity: 0.5,
   },
