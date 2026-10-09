@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -34,5 +34,24 @@ export class ProfilesService {
         email: 'ASC'
       },
     });
+  }
+
+  async updateMyProfile(
+    userId: string,
+    fullName: string,
+  ): Promise<Profile> {
+    const normalizedName = fullName.trim();
+
+    if (normalizedName.length < 2 || normalizedName.length > 100) {
+      throw new BadRequestException(
+        'Full name must contain between 2 and 100 characters',
+      );
+    }
+
+    const profile = await this.findById(userId);
+
+    profile.fullName = normalizedName;
+
+    return this.profileRepository.save(profile);
   }
 }

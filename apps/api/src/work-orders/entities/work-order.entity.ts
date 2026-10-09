@@ -9,8 +9,10 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { Profile } from '../../profiles/entities/profile.entity.js';
 import { WorkOrderStatusHistory } from './work-order-status-history.entity.js';
+import { WorkOrderComment } from './work-order-comment.entity.js';
 
 @Entity({ name: 'work_orders' })
 export class WorkOrder {
@@ -58,6 +60,9 @@ export class WorkOrder {
 
   @OneToMany(() => WorkOrderStatusHistory, (history) => history.workOrder)
   statusHistory!: WorkOrderStatusHistory[];
+
+  @OneToMany(() => WorkOrderComment, (comment) => comment.workOrder)
+  comments!: Relation<WorkOrderComment[]>;
 
   @CreateDateColumn({
     name: 'created_at',

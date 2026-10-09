@@ -5,9 +5,10 @@ import { WorkOrder } from './entities/work-order.entity.js';
 import { WorkOrdersService } from './work-orders.service.js';
 import { WorkOrdersController } from './work-orders.controller.js';
 import { ProfilesModule } from '../profiles/profiles.module.js';
+import { WorkOrderComment } from './entities/work-order-comment.entity.js';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WorkOrder, WorkOrderStatusHistory]), ProfilesModule],
+  imports: [TypeOrmModule.forFeature([WorkOrder, WorkOrderStatusHistory, WorkOrderComment]), ProfilesModule],
   controllers: [WorkOrdersController],
   providers: [WorkOrdersService],
   exports: [WorkOrdersService],

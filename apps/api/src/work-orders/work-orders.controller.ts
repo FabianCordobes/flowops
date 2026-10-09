@@ -12,6 +12,8 @@ import { AssignWorkOrderDto } from './dto/assign-work-order.dto.js';
 import { TransitionWorkOrderDto } from './dto/transition-work-order.dto.js';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto.js';
 import { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto.js';
+import { CreateWorkOrderCommentDto } from './dto/create-work-order-comment.dto.js';
+import { WorkOrderCommentResponseDto } from './dto/work-order-comment-response.dto.js';
 
 @Controller('work-orders')
 @UseGuards(AuthGuard, RolesGuard)
@@ -121,5 +123,39 @@ update(
   @Body() dto: UpdateWorkOrderDto,
 ) {
   return this.workOrdersService.update(id, dto);
+}
+
+@Get(':id/comments')
+async findComments(
+  @Param('id', ParseUUIDPipe) id: string,
+  @CurrentUser() user: User,
+) {
+  const profile = await this.profilesService.findById(user.id);
+
+  const comments = await this.workOrdersService.findComments(
+    id,
+    user.id,
+    profile.role,
+  );
+
+  return comments.map(WorkOrderCommentResponseDto.fromEntity);
+}
+
+@Post(':id/comments')
+async createComment(
+  @Param('id', ParseUUIDPipe) id: string,
+  @Body() dto: CreateWorkOrderCommentDto,
+  @CurrentUser() user: User,
+) {
+  const profile = await this.profilesService.findById(user.id);
+
+  const comment = await this.workOrdersService.createComment(
+    id,
+    user.id,
+    profile.role,
+    dto.content,
+  );
+
+  return WorkOrderCommentResponseDto.fromEntity(comment);
 }
 }

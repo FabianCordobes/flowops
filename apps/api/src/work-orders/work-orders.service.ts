@@ -6,6 +6,7 @@ import { WorkOrderStatusHistory } from './entities/work-order-status-history.ent
 import { WorkOrder } from './entities/work-order.entity.js';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto.js';
 import { ListWorkOrdersQueryDto, WorkOrderSort } from './dto/list-work-orders-query.dto.js';
+import { WorkOrderComment } from './entities/work-order-comment.entity.js';
 
 type TransitionDefinition = {
     from: WorkOrderStatus;
@@ -358,6 +359,57 @@ export class WorkOrdersService {
       await historyRepository.save(history);
 
       return savedWorkOrder;
+    });
+  }
+
+  async findComments(
+    workOrderId: string,
+    userId: string,
+    role: UserRole,
+  ): Promise<WorkOrderComment[]> {
+    await this.findOne(workOrderId, userId, role);
+
+    return this.dataSource
+      .getRepository(WorkOrderComment)
+      .find({
+        where: { workOrderId },
+        relations: { author: true },
+        order: {
+          createdAt: 'ASC',
+          id: 'ASC',
+        },
+      });
+  }
+
+  async createComment(
+    workOrderId: string,
+    userId: string,
+    role: UserRole,
+    content: string,
+  ): Promise<WorkOrderComment> {
+    await this.findOne(workOrderId, userId, role);
+
+    const normalizedContent = content.trim();
+
+    if (!normalizedContent || normalizedContent.length > 1000) {
+      throw new BadRequestException(
+        'Comment must contain between 1 and 1000 characters',
+      );
+    }
+
+    const repository = this.dataSource.getRepository(WorkOrderComment);
+
+    const comment = repository.create({
+      workOrderId,
+      authorId: userId,
+      content: normalizedContent,
+    });
+
+    const savedComment = await repository.save(comment);
+
+    return repository.findOneOrFail({
+      where: { id: savedComment.id },
+      relations: { author: true },
     });
   }
 }

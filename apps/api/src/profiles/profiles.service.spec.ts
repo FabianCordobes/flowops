@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ describe('ProfilesService', () => {
   let repository: {
     findOne: ReturnType<typeof vi.fn>;
     find: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
   };
 
   const profile: Profile = {
@@ -27,6 +28,7 @@ describe('ProfilesService', () => {
     repository = {
         findOne: vi.fn(),
         find: vi.fn(),
+        save: vi.fn(),
       };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -91,5 +93,71 @@ describe('ProfilesService', () => {
     });
 
     expect(result).toEqual(operators);
+  });
+
+  describe('updateMyProfile', () => {
+    it('should update the authenticated user full name', async () => {
+      const existingProfile = { ...profile };
+
+      repository.findOne.mockResolvedValue(existingProfile);
+      repository.save.mockImplementation(async (value) => value);
+
+      const result = await service.updateMyProfile(
+        profile.id,
+        'Maria Gonzalez',
+      );
+
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { id: profile.id },
+      });
+
+      expect(repository.save).toHaveBeenCalledWith({
+        ...existingProfile,
+        fullName: 'Maria Gonzalez',
+      });
+
+      expect(result.fullName).toBe('Maria Gonzalez');
+    });
+
+    it('should trim spaces from the full name', async () => {
+      repository.findOne.mockResolvedValue({ ...profile });
+      repository.save.mockImplementation(async (value) => value);
+
+      const result = await service.updateMyProfile(
+        profile.id,
+        '  Maria Gonzalez  ',
+      );
+
+      expect(result.fullName).toBe('Maria Gonzalez');
+    });
+
+    it('should reject a name containing only spaces', async () => {
+      await expect(
+        service.updateMyProfile(profile.id, '   '),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('should reject a name longer than 100 characters', async () => {
+      await expect(
+        service.updateMyProfile(profile.id, 'A'.repeat(101)),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('should reject updating a nonexistent profile', async () => {
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateMyProfile(
+          'missing-user-id',
+          'Maria Gonzalez',
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(repository.save).not.toHaveBeenCalled();
+    });
   });
 });

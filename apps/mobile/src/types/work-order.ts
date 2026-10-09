@@ -74,3 +74,18 @@ export type WorkOrderFilters = {
   search?: string;
   sort?: WorkOrderSort;
 };
+
+export type WorkOrderComment = {
+  id: string;
+  workOrderId: string;
+  content: string;
+  createdAt: string;
+  author: {
+    id: string;
+    fullName: string | null;
+  };
+};
+
+export type CreateWorkOrderCommentInput = {
+  content: string;
+};
