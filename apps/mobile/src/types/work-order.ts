@@ -89,3 +89,14 @@ export type WorkOrderComment = {
 export type CreateWorkOrderCommentInput = {
   content: string;
 };
+
+export type WorkOrdersDashboard = {
+  total: number;
+  new: number;
+  assigned: number;
+  inProgress: number;
+  inReview: number;
+  completed: number;
+  overdue: number;
+  recentOrders: WorkOrder[];
+};

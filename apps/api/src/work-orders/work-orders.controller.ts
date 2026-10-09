@@ -59,6 +59,16 @@ async findHistory(
   );
 }
 
+@Get('dashboard')
+async getDashboard(@CurrentUser() user: User) {
+  const profile = await this.profilesService.findById(user.id);
+
+  return this.workOrdersService.getDashboard(
+    user.id,
+    profile.role,
+  );
+}
+
 @Get(':id')
 async findOne(
   @Param('id', ParseUUIDPipe) id: string,
