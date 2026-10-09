@@ -8,11 +8,11 @@ import {
 
 import { useAuth } from '../providers/AuthProvider';
 import { LoginScreen } from '../screens/LoginScreen';
-import { WorkOrdersScreen } from '../screens/WorkOrdersScreen';
 import { WorkOrderDetailScreen } from '../screens/WorkOrderDetailScreen';
 import { CreateWorkOrderScreen } from '../screens/CreateWorkOrderScreen';
 import { colors } from '../theme';
 
+import { AppTabNavigator } from './AppTabNavigator';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -45,8 +45,8 @@ export const RootNavigator = () => {
       {isAuthenticated ? (
         <Stack.Group navigationKey="authenticated">
           <Stack.Screen
-            name="WorkOrders"
-            component={WorkOrdersScreen}
+            name="AppTabs"
+            component={AppTabNavigator}
           />
 
           <Stack.Screen

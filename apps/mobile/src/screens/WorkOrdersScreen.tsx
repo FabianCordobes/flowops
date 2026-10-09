@@ -1,11 +1,12 @@
 
 import { useFocusEffect } from '@react-navigation/native';
+import type { CompositeScreenProps } from '@react-navigation/native';
+import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useState } from 'react';
 
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,11 +14,14 @@ import {
 } from 'react-native';
 
 import { WorkOrderCard } from '../components/work-orders/WorkOrderCard';
-import { AppButton } from '../components/ui/AppButton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ScreenHeader } from '../components/ui/ScreenHeader';
 
-import type { RootStackParamList } from '../navigation/types';
+import type {
+  AppTabParamList,
+  RootStackParamList,
+} from '../navigation/types';
+
 import { useAuth } from '../providers/AuthProvider';
 import { getWorkOrders } from '../services/work-orders.service';
 
@@ -30,17 +34,19 @@ import {
 
 import type { WorkOrder } from '../types/work-order';
 
-type Props = NativeStackScreenProps<
-  RootStackParamList,
-  'WorkOrders'
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<AppTabParamList, 'Orders'>,
+  NativeStackScreenProps<RootStackParamList, 'AppTabs'>
 >;
 
 export const WorkOrdersScreen = ({ navigation }: Props) => {
-  const { profile, signOut } = useAuth();
+  const { profile } = useAuth();
 
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(
+    null,
+  );
 
   const isAdmin = profile?.role === 'ADMIN';
 
@@ -68,14 +74,6 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
     }, [loadWorkOrders]),
   );
 
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error('Failed to sign out', error);
-    }
-  };
-
   const handleCreateWorkOrder = () => {
     navigation.navigate('CreateWorkOrder');
   };
@@ -93,7 +91,7 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
       style={styles.container}
       contentContainerStyle={styles.content}
     >
-      {/* Header */}
+      {/* HEADER */}
       <View style={styles.header}>
         <ScreenHeader
           eyebrow="FlowOps workspace"
@@ -117,17 +115,7 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
         </View>
       </View>
 
-      {/* Create work order - ADMIN only */}
-      {isAdmin ? (
-        <View style={styles.createAction}>
-          <AppButton
-            label="+ New work order"
-            onPress={handleCreateWorkOrder}
-          />
-        </View>
-      ) : null}
-
-      {/* Loading state */}
+      {/* LOADING */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator
@@ -141,7 +129,7 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
         </View>
       ) : null}
 
-      {/* Error state */}
+      {/* ERROR */}
       {!isLoading && errorMessage ? (
         <EmptyState
           variant="error"
@@ -154,7 +142,7 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
         />
       ) : null}
 
-      {/* Empty state */}
+      {/* EMPTY STATE */}
       {!isLoading && !errorMessage && !hasWorkOrders ? (
         <EmptyState
           variant="empty"
@@ -164,12 +152,16 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
               ? 'Create the first work order to start the workflow.'
               : 'There are no work orders assigned to you.'
           }
-          actionLabel={isAdmin ? 'Create work order' : undefined}
-          onAction={isAdmin ? handleCreateWorkOrder : undefined}
+          actionLabel={
+            isAdmin ? 'Create work order' : undefined
+          }
+          onAction={
+            isAdmin ? handleCreateWorkOrder : undefined
+          }
         />
       ) : null}
 
-      {/* Work orders list */}
+      {/* WORK ORDERS LIST */}
       {!isLoading && !errorMessage && hasWorkOrders ? (
         <View style={styles.listSection}>
           <View style={styles.listHeader}>
@@ -179,7 +171,9 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
 
             <Text style={styles.listCount}>
               {workOrders.length}{' '}
-              {workOrders.length === 1 ? 'order' : 'orders'}
+              {workOrders.length === 1
+                ? 'order'
+                : 'orders'}
             </Text>
           </View>
 
@@ -196,23 +190,6 @@ export const WorkOrdersScreen = ({ navigation }: Props) => {
           </View>
         </View>
       ) : null}
-
-      {/* Sign out */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Sign out"
-        style={({ pressed }) => [
-          styles.signOutButton,
-          pressed && styles.signOutPressed,
-        ]}
-        onPress={() => {
-          void handleSignOut();
-        }}
-      >
-        <Text style={styles.signOutText}>
-          Sign out
-        </Text>
-      </Pressable>
     </ScrollView>
   );
 };
@@ -306,24 +283,5 @@ const styles = StyleSheet.create({
 
   list: {
     gap: spacing.lg,
-  },
-
-  signOutButton: {
-    marginTop: spacing.section,
-    minHeight: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.lg,
-    backgroundColor: colors.text,
-  },
-
-  signOutPressed: {
-    opacity: 0.8,
-  },
-
-  signOutText: {
-    color: colors.textInverse,
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
   },
 });
