@@ -12,14 +12,14 @@ create table public.work_order_comments (
 
   created_at timestamptz not null default now(),
 
-  constraint work_order_comments_content_length_check
+  constraint work_order_comments_content_check
     check (
       char_length(btrim(content)) between 1 and 1000
     )
 );
 
-create index work_order_comments_work_order_created_at_idx
-  on public.work_order_comments(
+create index idx_work_order_comments_order_created
+  on public.work_order_comments (
     work_order_id,
     created_at,
     id
