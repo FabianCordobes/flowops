@@ -6,6 +6,7 @@ import type {
   WorkOrderAction,
   WorkOrderComment,
   WorkOrderFilters,
+  WorkOrdersDashboard,
   WorkOrderStatusHistory,
 } from '../types/work-order';
 
@@ -104,5 +105,12 @@ export const createWorkOrder = (
         method: 'POST',
         body: JSON.stringify(input),
       },
+    );
+  };
+
+  export const getWorkOrdersDashboard =
+  (): Promise<WorkOrdersDashboard> => {
+    return apiRequest<WorkOrdersDashboard>(
+      '/work-orders/dashboard',
     );
   };

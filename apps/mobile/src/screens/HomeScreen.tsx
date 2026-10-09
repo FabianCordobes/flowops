@@ -26,9 +26,9 @@ import type {
 } from '../navigation/types';
 
 import { useAuth } from '../providers/AuthProvider';
-import { getWorkOrders } from '../services/work-orders.service';
+import { getWorkOrdersDashboard } from '../services/work-orders.service';
 import { colors, radius, spacing, typography } from '../theme';
-import type { WorkOrder } from '../types/work-order';
+import type { WorkOrdersDashboard } from '../types/work-order';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<AppTabParamList, 'Home'>,
@@ -61,7 +61,8 @@ const StatCard = ({
 export const HomeScreen = ({ navigation }: Props) => {
   const { profile } = useAuth();
 
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [dashboard, setDashboard] =
+  useState<WorkOrdersDashboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -70,9 +71,10 @@ export const HomeScreen = ({ navigation }: Props) => {
     setErrorMessage(null);
 
     try {
-      const data = await getWorkOrders();
-      setWorkOrders(data);
+      const data = await getWorkOrdersDashboard();
+      setDashboard(data);
     } catch (error) {
+      setDashboard(null);
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -89,28 +91,7 @@ export const HomeScreen = ({ navigation }: Props) => {
     }, [loadDashboard]),
   );
 
-  const totalOrders = workOrders.length;
-
-  const inProgress = workOrders.filter(
-    (order) => order.status === 'IN_PROGRESS',
-  ).length;
-
-  const inReview = workOrders.filter(
-    (order) => order.status === 'IN_REVIEW',
-  ).length;
-
-  const completed = workOrders.filter(
-    (order) => order.status === 'COMPLETED',
-  ).length;
-
-  const recentOrders = [...workOrders]
-  .sort((a, b) => {
-    return (
-      new Date(b.updatedAt).getTime() -
-      new Date(a.updatedAt).getTime()
-    );
-  })
-  .slice(0, 3);
+  const recentOrders = dashboard?.recentOrders ?? [];
 
   const handleViewAll = () => {
     navigation.navigate('Orders');
@@ -184,29 +165,41 @@ export const HomeScreen = ({ navigation }: Props) => {
             </View>
 
             <View style={styles.statsGrid}>
-              <StatCard
-                label="Total orders"
-                value={totalOrders}
-                icon="layers-outline"
-              />
+             <StatCard
+  label="Total orders"
+  value={dashboard?.total ?? 0}
+  icon="layers-outline"
+/>
 
-              <StatCard
-                label="In progress"
-                value={inProgress}
-                icon="time-outline"
-              />
+<StatCard
+  label="In progress"
+  value={dashboard?.inProgress ?? 0}
+  icon="time-outline"
+/>
 
-              <StatCard
-                label="In review"
-                value={inReview}
-                icon="eye-outline"
-              />
+<StatCard
+  label="In review"
+  value={dashboard?.inReview ?? 0}
+  icon="eye-outline"
+/>
 
-              <StatCard
-                label="Completed"
-                value={completed}
-                icon="checkmark-circle-outline"
-              />
+<StatCard
+  label="Completed"
+  value={dashboard?.completed ?? 0}
+  icon="checkmark-circle-outline"
+/>
+<StatCard
+  label="Pending"
+  value={(dashboard?.new ?? 0) + (dashboard?.assigned ?? 0)}
+  icon="clipboard-outline"
+/>
+
+<StatCard
+  label="Overdue"
+  value={dashboard?.overdue ?? 0}
+  icon="alert-circle-outline"
+  color={colors.danger}
+/>
             </View>
           </View>
 

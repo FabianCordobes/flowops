@@ -7,6 +7,7 @@ import { WorkOrder } from './entities/work-order.entity.js';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto.js';
 import { ListWorkOrdersQueryDto, WorkOrderSort } from './dto/list-work-orders-query.dto.js';
 import { WorkOrderComment } from './entities/work-order-comment.entity.js';
+import { WorkOrdersDashboardResponseDto } from './dto/work-orders-dashboard-response.dto.js';
 
 type TransitionDefinition = {
     from: WorkOrderStatus;
@@ -411,5 +412,92 @@ export class WorkOrdersService {
       where: { id: savedComment.id },
       relations: { author: true },
     });
+  }
+
+  async getDashboard(
+    userId: string,
+    role: UserRole,
+  ): Promise<WorkOrdersDashboardResponseDto> {
+    const repository = this.dataSource.getRepository(WorkOrder);
+
+    const query = repository.createQueryBuilder('workOrder');
+
+    if (role !== UserRole.ADMIN) {
+      query.andWhere('workOrder.assignedTo = :userId', {
+        userId,
+      });
+    }
+
+    const rawStats = await query
+      .select('COUNT(*)', 'total')
+      .addSelect(
+        `COUNT(*) FILTER (WHERE workOrder.status = :newStatus)`,
+        'new',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE workOrder.status = :assignedStatus)`,
+        'assigned',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE workOrder.status = :inProgressStatus)`,
+        'inProgress',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE workOrder.status = :inReviewStatus)`,
+        'inReview',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE workOrder.status = :completedStatus)`,
+        'completed',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (
+          WHERE workOrder.dueDate < :now
+            AND workOrder.status != :completedStatus
+        )`,
+        'overdue',
+      )
+      .setParameters({
+        newStatus: WorkOrderStatus.NEW,
+        assignedStatus: WorkOrderStatus.ASSIGNED,
+        inProgressStatus: WorkOrderStatus.IN_PROGRESS,
+        inReviewStatus: WorkOrderStatus.IN_REVIEW,
+        completedStatus: WorkOrderStatus.COMPLETED,
+        now: new Date(),
+      })
+      .getRawOne<{
+        total: string;
+        new: string;
+        assigned: string;
+        inProgress: string;
+        inReview: string;
+        completed: string;
+        overdue: string;
+      }>();
+
+    const recentQuery = repository.createQueryBuilder('workOrder');
+
+    if (role !== UserRole.ADMIN) {
+      recentQuery.andWhere('workOrder.assignedTo = :userId', {
+        userId,
+      });
+    }
+
+    const recentOrders = await recentQuery
+      .orderBy('workOrder.updatedAt', 'DESC')
+      .addOrderBy('workOrder.id', 'ASC')
+      .take(3)
+      .getMany();
+
+    return {
+      total: Number(rawStats?.total ?? 0),
+      new: Number(rawStats?.new ?? 0),
+      assigned: Number(rawStats?.assigned ?? 0),
+      inProgress: Number(rawStats?.inProgress ?? 0),
+      inReview: Number(rawStats?.inReview ?? 0),
+      completed: Number(rawStats?.completed ?? 0),
+      overdue: Number(rawStats?.overdue ?? 0),
+      recentOrders,
+    };
   }
 }
